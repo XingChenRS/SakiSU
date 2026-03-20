@@ -253,8 +253,7 @@ pub fn exec_stage_script(stage: &str, block: bool) -> Result<()> {
     foreach_active_module(|module| {
         if metamodule_dir.as_ref().is_some_and(|meta_dir| {
             canonicalize(module)
-                .map(|resolved| resolved == *meta_dir)
-                .unwrap_or(false)
+                .is_ok_and(|resolved| resolved == *meta_dir)
         }) {
             return Ok(());
         }
@@ -321,8 +320,7 @@ pub fn prune_modules() -> Result<()> {
 
         // Check if this is a metamodule
         let is_metamodule = read_module_prop(module)
-            .map(|props| metamodule::is_metamodule(&props))
-            .unwrap_or(false);
+            .is_ok_and(|props| metamodule::is_metamodule(&props));
 
         if is_metamodule {
             info!("Removing metamodule symlink");
@@ -330,7 +328,7 @@ pub fn prune_modules() -> Result<()> {
                 warn!("Failed to remove metamodule symlink: {e}");
             }
         } else if let Err(e) = metamodule::exec_metauninstall_script(module_id) {
-            warn!("Failed to exec metamodule uninstall for {module_id}: {e}",);
+            warn!("Failed to exec metamodule uninstall for {module_id}: {e}");
         }
 
         // Then execute module's own uninstall.sh

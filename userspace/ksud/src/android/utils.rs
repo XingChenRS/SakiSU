@@ -104,12 +104,8 @@ pub fn getprop(prop: &str) -> Option<String> {
 }
 
 pub fn is_safe_mode() -> bool {
-    let safemode = getprop("persist.sys.safemode")
-        .filter(|prop| prop == "1")
-        .is_some()
-        || getprop("ro.sys.safemode")
-            .filter(|prop| prop == "1")
-            .is_some();
+    let safemode = getprop("persist.sys.safemode").as_ref().is_some_and(|prop| prop == "1")
+        || getprop("ro.sys.safemode").as_ref().is_some_and(|prop| prop == "1");
     log::info!("safemode: {safemode}");
     if safemode {
         return true;
@@ -160,9 +156,7 @@ pub fn switch_cgroups() {
     switch_cgroup("/dev/cg2_bpf", pid);
     switch_cgroup("/sys/fs/cgroup", pid);
 
-    if getprop("ro.config.per_app_memcg")
-        .filter(|prop| prop == "false")
-        .is_none()
+    if getprop("ro.config.per_app_memcg").as_ref().is_none_or(|prop| prop != "false")
     {
         switch_cgroup("/dev/memcg/apps", pid);
     }
