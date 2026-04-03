@@ -20,6 +20,7 @@ use crate::assets;
 #[cfg(target_os = "android")]
 mod android {
     use std::{
+        fmt::Write,
         fs::{File, OpenOptions},
         os::fd::AsRawFd,
         path::Path,
@@ -118,7 +119,15 @@ mod android {
         }
 
         let result = hasher.finalize();
-        Ok(format!("{result:x}"))
+
+        let hex = result
+            .iter()
+            .fold(String::with_capacity(result.len() * 2), |mut s, &b| {
+                write!(&mut s, "{b:02x}").unwrap();
+                s
+            });
+
+        Ok(hex)
     }
 
     pub(super) fn do_backup(cpio: &mut Cpio, image: &Path) -> Result<()> {
