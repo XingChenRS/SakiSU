@@ -258,7 +258,10 @@ fun InstallScreen(
     }
 
     val onClickNext = {
-        if (isGKI && lkmSelection == LkmSelection.KmiNone && currentKmi.isBlank() && installMethod !is InstallMethod.HorizonKernel) {
+        // sakisu: always force the KMI selection dialog on GKI installs (instead of
+        // only when getCurrentKmi() returns blank). Vendor-patched kernels (e.g. vivo)
+        // need the matching `_vivo` KMI variant, which the user must pick manually.
+        if (isGKI && lkmSelection == LkmSelection.KmiNone && installMethod !is InstallMethod.HorizonKernel) {
             selectKmiDialog.show()
         } else {
             onInstall()
