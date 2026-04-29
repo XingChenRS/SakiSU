@@ -65,6 +65,7 @@ jobs:
         with:
           files: |
             manager/*.apk
+            *-gradle-release/manager/app/build/outputs/apk/release/*.apk
             android*-lkm/*_kernelsu.ko
             AnyKernel3-*.zip
             boot-images-*/Image-*/*.img.gz
