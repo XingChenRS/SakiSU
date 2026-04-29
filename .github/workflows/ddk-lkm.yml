@@ -22,11 +22,16 @@ on:
         required: false
         default: ''
         type: string
+      vivo:
+        description: 'Inject vivo vermagic (sakisu-specific). When true, output is suffixed with _vivo.'
+        required: false
+        default: false
+        type: boolean
 
 
 jobs:
   build-kernelsu-ko:
-    name: Build kernelsu.ko for ${{ inputs.kmi }}
+    name: Build kernelsu.ko for ${{ inputs.kmi }}${{ inputs.vivo && ' (vivo)' || '' }}
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/ylarod/ddk-min:${{ inputs.kmi }}-${{ inputs.ddk_release }}
@@ -35,6 +40,70 @@ jobs:
     steps:
     - name: Checkout source code
       uses: actions/checkout@v6
+
+    # --- sakisu: vivo vermagic injection (only when inputs.vivo == true) ---
+    # vivo official kernels (GKI) require the vermagic string to contain "vivo",
+    # otherwise the kernel rejects LKM loading.
+    # Strategy:
+    #   * For KMIs with device-tested vermagic, hardcode the exact string.
+    #   * For other KMIs, use a generic template that ensures the "vivo" token
+    #     is present; the exact UTS_RELEASE may differ from real vivo devices,
+    #     so revisit when device intel becomes available.
+    - name: Inject Vivo vermagic
+      if: ${{ inputs.vivo }}
+      run: |
+        set -euo pipefail
+        KMI="${{ inputs.kmi }}"
+        # Parse android version (NN) and kernel version (MAJOR.MINOR)
+        ANDROID_VER=$(echo "$KMI" | cut -d- -f1 | sed 's/android//')
+        KERNEL_VER=$(echo "$KMI" | cut -d- -f2)
+
+        case "$KMI" in
+          android12-5.10|android13-5.10)
+            UTS_STRING="5.10.233-android12-9-g28b19682acbc-dirty"
+            PATCH_UTS="false"   # original sakisu example for 5.10 did not patch UTS
+            ;;
+          android14-6.1)
+            UTS_STRING="6.1.145-android14-11-maybe-dirty"
+            PATCH_UTS="true"
+            ;;
+          *)
+            UTS_STRING="${KERNEL_VER}.0-android${ANDROID_VER}-0-maybe-dirty"
+            PATCH_UTS="true"
+            echo "WARNING: KMI=$KMI uses generic vivo vermagic template."
+            echo "         If actual vivo kernel rejects this LKM, capture real"
+            echo "         vermagic from a vivo device and add a case branch above."
+            ;;
+        esac
+
+        VMAGIC_STRING="${UTS_STRING} SMP preempt mod_unload modversions vivo aarch64"
+
+        VERMAGIC_FILE=$(find /opt/ddk -path "*/include/linux/vermagic.h" | head -n 1)
+        if [ -z "$VERMAGIC_FILE" ]; then
+          echo "ERROR: vermagic.h not found under /opt/ddk"; exit 1
+        fi
+        echo "Patching $VERMAGIC_FILE  (KMI=$KMI)"
+        echo "  VERMAGIC = $VMAGIC_STRING"
+        {
+          echo ""
+          echo "#undef VERMAGIC_STRING"
+          echo "#define VERMAGIC_STRING \"$VMAGIC_STRING\""
+        } >> "$VERMAGIC_FILE"
+
+        if [ "$PATCH_UTS" = "true" ]; then
+          UTS_FILE=$(find /opt/ddk -path "*/include/generated/utsrelease.h" | head -n 1)
+          if [ -n "$UTS_FILE" ]; then
+            echo "Patching $UTS_FILE"
+            echo "  UTS_RELEASE = $UTS_STRING"
+            {
+              echo ""
+              echo "#undef UTS_RELEASE"
+              echo "#define UTS_RELEASE \"$UTS_STRING\""
+            } >> "$UTS_FILE"
+          else
+            echo "NOTE: utsrelease.h not found; skipping UTS patch."
+          fi
+        fi
 
     - name: Build kernelsu.ko
       env:
@@ -64,8 +133,12 @@ jobs:
         echo "=== Build completed ==="
         # Create output directory in GitHub workspace
         mkdir -p /github/workspace/out
-        # Copy with KMI-specific naming
-        OUTPUT_NAME="${{ inputs.kmi }}_kernelsu.ko"
+        # Copy with KMI-specific naming (suffix _vivo when vivo build)
+        SUFFIX=""
+        if [ "${{ inputs.vivo }}" = "true" ]; then
+          SUFFIX="_vivo"
+        fi
+        OUTPUT_NAME="${{ inputs.kmi }}${SUFFIX}_kernelsu.ko"
         cp kernelsu.ko "/github/workspace/out/$OUTPUT_NAME"
         
         echo "Copied to: /github/workspace/out/$OUTPUT_NAME"
@@ -77,5 +150,5 @@ jobs:
     - name: Upload kernelsu.ko artifact
       uses: actions/upload-artifact@v7
       with:
-        name: ${{ inputs.kmi }}-lkm
-        path: /github/workspace/out/${{ inputs.kmi }}_kernelsu.ko
+        name: ${{ inputs.kmi }}${{ inputs.vivo && '-vivo' || '' }}-lkm
+        path: /github/workspace/out/${{ inputs.kmi }}${{ inputs.vivo && '_vivo' || '' }}_kernelsu.ko
