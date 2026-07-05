@@ -182,13 +182,17 @@ fun InstallScreen(
 
     var partitionSelectionIndex by remember { mutableIntStateOf(0) }
     var hasCustomSelected by remember { mutableStateOf(false) }
-    val partitionsState = produceState(initialValue = emptyList<String>()) {
-        value = getAvailablePartitions()
-    }.value
-    val defaultPartitionState = produceState(initialValue = "") {
-        value = getDefaultPartition()
-    }.value
+    var partitionsState by remember { mutableStateOf<List<String>>(emptyList()) }
+    var defaultPartitionState by remember { mutableStateOf("") }
     val navigator = LocalNavigator.current
+
+    LaunchedEffect(installMethod) {
+        val method = installMethod
+        if (method is InstallMethod.DirectInstall || method is InstallMethod.DirectInstallToInactiveSlot) {
+            partitionsState = withContext(Dispatchers.IO) { getAvailablePartitions() }
+            defaultPartitionState = withContext(Dispatchers.IO) { getDefaultPartition() }
+        }
+    }
 
     val onInstall = {
         installMethod?.let { method ->
