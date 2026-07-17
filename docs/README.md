@@ -42,6 +42,8 @@ See [vivo/iQOO compatibility guide](vivo.md) for background, risks, and step-by-
 - [vivo/iQOO compatibility guide](vivo.md)
 - [vivo implementation notes](../DEVLOG-VIVO.md)
 - [Upstream sync notes](../SAKISU-UPSTREAM-SYNC.md)
+- [Upstream baseline lock](../UPSTREAM.md)
+- [SakiSU vision / principles / proposal](sakisu/README.md)
 
 ## Credits
 

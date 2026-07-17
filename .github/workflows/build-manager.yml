@@ -21,6 +21,8 @@ jobs:
     outputs:
       expected_size: ${{ steps.extract.outputs.expected_size }}
       expected_hash: ${{ steps.extract.outputs.expected_hash }}
+      is_production: ${{ steps.extract.outputs.is_production }}
+      is_ephemeral: ${{ steps.gen.outputs.is_ephemeral }}
       keystore: ${{ steps.gen.outputs.keystore }}
       keystore_password: ${{ steps.gen.outputs.keystore_password }}
       key_alias: ${{ steps.gen.outputs.key_alias }}
@@ -36,19 +38,26 @@ jobs:
           PROD_STORE_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
           PROD_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           PROD_KEY_PASS: ${{ secrets.KEY_PASSWORD }}
+          REQUIRE_PRODUCTION: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' }}
         run: |
           if [ -n "$PROD_KEYSTORE" ] && [ -n "$PROD_STORE_PASS" ] && [ -n "$PROD_KEY_ALIAS" ] && [ -n "$PROD_KEY_PASS" ]; then
             echo "::notice::Using long-lived keystore from repository secrets."
             echo "$PROD_KEYSTORE" | base64 -d > pr-key.jks
+            echo "is_ephemeral=false" >> $GITHUB_OUTPUT
             echo "extract_key_alias=" >> $GITHUB_OUTPUT
             echo "keystore=" >> $GITHUB_OUTPUT
             echo "keystore_password=" >> $GITHUB_OUTPUT
             echo "key_password=" >> $GITHUB_OUTPUT
             echo "key_alias=" >> $GITHUB_OUTPUT
           else
+            if [ "$REQUIRE_PRODUCTION" = "true" ]; then
+              echo "::error::Production branches (main/dev) require repository secrets KEYSTORE / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD matching EXPECTED_*_SAKISU in kernel/manager/manager_sign.h. Ephemeral PR signing is not allowed."
+              exit 1
+            fi
             echo "::notice::No complete KEYSTORE secret set; generating an ephemeral key for this run."
             KEYSTORE_PASSWORD=$(openssl rand -hex 32)
             KEY_PASSWORD=$(openssl rand -hex 32)
+            echo "is_ephemeral=true" >> $GITHUB_OUTPUT
             echo "keystore_password=$KEYSTORE_PASSWORD" >> $GITHUB_OUTPUT
             echo "key_password=$KEY_PASSWORD" >> $GITHUB_OUTPUT
             echo "key_alias=pr-key" >> $GITHUB_OUTPUT
@@ -74,6 +83,8 @@ jobs:
           PROD_STORE_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ steps.gen.outputs.extract_key_alias }}
           PROD_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          IS_EPHEMERAL: ${{ steps.gen.outputs.is_ephemeral }}
+          REQUIRE_PRODUCTION: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' }}
         run: |
           STORE_PASSWORD="$STORE_PASS"
           if [ -z "$STORE_PASSWORD" ]; then
@@ -99,22 +110,37 @@ jobs:
           HASH=$(sha256sum pr-cert.der | awk '{print $1}')
           OFFICIAL_SIZE=$(awk '/EXPECTED_SIZE_SAKISU/ {print $3; exit}' kernel/manager/manager_sign.h)
           OFFICIAL_HASH=$(awk -F'"' '/EXPECTED_HASH_SAKISU/ {print $2; exit}' kernel/manager/manager_sign.h)
-          if [ "$SIZE_HEX" = "$OFFICIAL_SIZE" ] && [ "$HASH" = "$OFFICIAL_HASH" ]; then
-            echo "::notice::Build keystore matches the built-in SakiSU certificate."
-            echo "expected_size=" >> $GITHUB_OUTPUT
-            echo "expected_hash=" >> $GITHUB_OUTPUT
-          else
-            echo "expected_size=$SIZE_HEX" >> $GITHUB_OUTPUT
-            echo "expected_hash=$HASH" >> $GITHUB_OUTPUT
-          fi
 
           echo "Certificate size: $SIZE_HEX ($SIZE_DEC bytes)"
           echo "Certificate hash: $HASH"
+          echo "Official SakiSU size/hash: $OFFICIAL_SIZE / $OFFICIAL_HASH"
+
+          if [ "$SIZE_HEX" = "$OFFICIAL_SIZE" ] && [ "$HASH" = "$OFFICIAL_HASH" ]; then
+            echo "::notice::Build keystore matches the built-in SakiSU certificate (production)."
+            echo "expected_size=" >> $GITHUB_OUTPUT
+            echo "expected_hash=" >> $GITHUB_OUTPUT
+            echo "is_production=true" >> $GITHUB_OUTPUT
+          else
+            if [ "$REQUIRE_PRODUCTION" = "true" ]; then
+              echo "::error::Production branches (main/dev) require the signing certificate to match EXPECTED_SIZE_SAKISU / EXPECTED_HASH_SAKISU. Update repository KEYSTORE secrets or manager_sign.h."
+              exit 1
+            fi
+            echo "::warning::Non-official signing certificate; marking as PR/debug build."
+            echo "expected_size=$SIZE_HEX" >> $GITHUB_OUTPUT
+            echo "expected_hash=$HASH" >> $GITHUB_OUTPUT
+            echo "is_production=false" >> $GITHUB_OUTPUT
+          fi
+
+          if [ "$IS_EPHEMERAL" = "true" ] && [ "$REQUIRE_PRODUCTION" = "true" ]; then
+            echo "::error::Ephemeral signing is forbidden on production branches."
+            exit 1
+          fi
 
   build-lkm:
     needs: generate-key
     uses: ./.github/workflows/build-lkm.yml
     with:
+      # Empty when is_production=true (official SakiSU cert); only set for ephemeral/debug.
       expected_pr_build_size: ${{ needs.generate-key.outputs.expected_size || '' }}
       expected_pr_build_hash: ${{ needs.generate-key.outputs.expected_hash || '' }}
     secrets: inherit
@@ -236,10 +262,15 @@ jobs:
         env:
           KSU_EXPECTED_PR_BUILD_SIZE: ${{ needs.generate-key.outputs.expected_size }}
           KSU_EXPECTED_PR_BUILD_HASH: ${{ needs.generate-key.outputs.expected_hash }}
+          IS_PRODUCTION: ${{ needs.generate-key.outputs.is_production }}
         run: |
           EXTRA_ARGS=""
-          if [ -n "$KSU_EXPECTED_PR_BUILD_SIZE" ] && [ -n "$KSU_EXPECTED_PR_BUILD_HASH" ]; then
+          # Production builds must never ship IS_PR_BUILD / PR cert slots.
+          if [ "$IS_PRODUCTION" != "true" ] && [ -n "$KSU_EXPECTED_PR_BUILD_SIZE" ] && [ -n "$KSU_EXPECTED_PR_BUILD_HASH" ]; then
             EXTRA_ARGS="-PIS_PR_BUILD=true"
+          else
+            unset KSU_EXPECTED_PR_BUILD_SIZE
+            unset KSU_EXPECTED_PR_BUILD_HASH
           fi
           ./gradlew assemble${{ matrix.build_type }} -Pcommit=${{ steps.commit.outputs.COMMIT_SHA }} $EXTRA_ARGS
 

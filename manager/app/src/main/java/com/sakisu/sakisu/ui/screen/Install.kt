@@ -101,15 +101,25 @@ import com.sakisu.sakisu.ui.util.getDefaultPartition
 import com.sakisu.sakisu.ui.util.getSlotSuffix
 import com.sakisu.sakisu.ui.util.getSupportedKmis
 import com.sakisu.sakisu.ui.util.isAbDevice
-import com.sakisu.sakisu.ui.util.rootAvailable as isRootAvailable
+import com.sakisu.sakisu.ui.util.probeRootAvailable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * @author ShirkNeko
  * @date 2025/5/31.
  */
+
+private data class InstallDeviceProbe(
+    val rootAvailable: Boolean = false,
+    val isAbDevice: Boolean = false,
+    val defaultPartition: String = "boot",
+    val currentKmi: String = "",
+)
+
+private const val INSTALL_PROBE_TIMEOUT_MS = 8_000L
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -135,9 +145,30 @@ fun InstallScreen(
 
     val kernelVersion = getKernelVersion()
     val isGKI = kernelVersion.isGKI()
-    val isAbDevice = produceState(initialValue = false) {
-        value = isAbDevice()
-    }.value
+    // Single serialized probe: rapid Home↔Install navigation used to cancel overlapping
+    // produceState shell jobs on the shared libsu Shell and freeze the manager.
+    var deviceProbe by remember { mutableStateOf(InstallDeviceProbe()) }
+    LaunchedEffect(Unit) {
+        deviceProbe = withContext(Dispatchers.IO) {
+            withTimeoutOrNull(INSTALL_PROBE_TIMEOUT_MS) {
+                val root = runCatching { probeRootAvailable() }.getOrDefault(false)
+                val ab = runCatching { isAbDevice() }.getOrDefault(false)
+                val partition = runCatching { getDefaultPartition() }.getOrDefault("boot")
+                val kmi = if (root) {
+                    runCatching { getCurrentKmi() }.getOrDefault("")
+                } else {
+                    ""
+                }
+                InstallDeviceProbe(
+                    rootAvailable = root,
+                    isAbDevice = ab,
+                    defaultPartition = partition.ifBlank { "boot" },
+                    currentKmi = kmi,
+                )
+            } ?: InstallDeviceProbe()
+        }
+    }
+    val abDevice = deviceProbe.isAbDevice
     val summary = stringResource(R.string.horizon_kernel_summary)
 
     // 处理预选的内核文件
@@ -152,7 +183,7 @@ fun InstallScreen(
                 installMethod = horizonMethod
                 tempKernelUri = preselectedUri
 
-                if (isAbDevice) {
+                if (abDevice) {
                     showSlotSelectionDialog = true
                 }
             } catch (e: Exception) {
@@ -226,7 +257,7 @@ fun InstallScreen(
 
     // 槽位选择
     SlotSelectionDialog(
-        show = showSlotSelectionDialog && isAbDevice,
+        show = showSlotSelectionDialog && abDevice,
         onDismiss = { showSlotSelectionDialog = false },
         onSlotSelected = { slot ->
             showSlotSelectionDialog = false
@@ -239,9 +270,7 @@ fun InstallScreen(
         }
     )
 
-    val currentKmi by produceState(initialValue = "") {
-        value = getCurrentKmi()
-    }
+    val currentKmi = deviceProbe.currentKmi
 
     val preferredKmi = if (enableVivoPatch) {
         currentKmi.takeIf { it.isNotBlank() }?.let { base ->
@@ -344,10 +373,13 @@ fun InstallScreen(
         ) {
             SelectInstallMethod(
                 isGKI = isGKI,
+                rootAvailable = deviceProbe.rootAvailable,
+                isAbDevice = deviceProbe.isAbDevice,
+                defaultPartitionName = deviceProbe.defaultPartition,
                 onSelected = { method ->
                     selectedBootImageKind = null
                     if (method is InstallMethod.HorizonKernel && method.uri != null) {
-                        if (isAbDevice) {
+                        if (abDevice) {
                             tempKernelUri = method.uri
                             showSlotSelectionDialog = true
                         } else {
@@ -571,18 +603,12 @@ sealed class InstallMethod {
 @Composable
 private fun SelectInstallMethod(
     isGKI: Boolean = false,
+    rootAvailable: Boolean = false,
+    isAbDevice: Boolean = false,
+    defaultPartitionName: String = "boot",
     onSelected: (InstallMethod) -> Unit = {},
     selectedMethod: InstallMethod? = null
 ) {
-    val rootAvailable = produceState(initialValue = false) {
-        value = withContext(Dispatchers.IO) { isRootAvailable() }
-    }.value
-    val isAbDevice = produceState(initialValue = false) {
-        value = isAbDevice()
-    }.value
-    val defaultPartitionName = produceState(initialValue = "boot") {
-        value = getDefaultPartition()
-    }.value
     val horizonKernelSummary = stringResource(R.string.horizon_kernel_summary)
     val selectFileTip = stringResource(
         id = R.string.select_file_tip, defaultPartitionName

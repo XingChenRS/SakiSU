@@ -67,3 +67,16 @@ Replay SakiSU-specific work on top of the newest ReSukiSU mainline in a clean, r
 ## Local Windows Note
 
 `manager/app/src/main/cpp/uapi` is a Git symlink to the repository-level `uapi` directory. On Windows checkouts without symlink support, full native Manager builds can fail with `uapi/ksu.h` not found even though Kotlin compilation succeeds. Linux GitHub Actions should resolve the symlink normally.
+
+## Production Signing Gate
+
+Release branches (`main`, `dev`) require repository secrets:
+
+- `KEYSTORE` (base64 JKS)
+- `KEYSTORE_PASSWORD`
+- `KEY_ALIAS`
+- `KEY_PASSWORD`
+
+The signing certificate **must** match `EXPECTED_SIZE_SAKISU` / `EXPECTED_HASH_SAKISU` in `kernel/manager/manager_sign.h`. Otherwise CI fails and must not ship `IS_PR_BUILD` or bake `EXPECTED_PR_BUILD_*` into LKM (that is what shows the home-page “PR debug build” warning).
+
+`sync/**` may still use ephemeral signing for try builds; those artifacts will show the PR debug warning until production secrets are configured.

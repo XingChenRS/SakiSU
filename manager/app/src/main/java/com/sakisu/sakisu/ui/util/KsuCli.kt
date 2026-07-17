@@ -15,6 +15,8 @@ import com.topjohnwu.superuser.Shell
 import com.topjohnwu.superuser.ShellUtils
 import com.topjohnwu.superuser.io.SuFile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.parcelize.Parcelize
 import org.json.JSONArray
@@ -34,9 +36,19 @@ private fun getKsuDaemonPath(): String {
 
 @SuppressLint("RestrictedApi")
 object KsuCli {
-    var SHELL: Shell = createRootShell()
-    val GLOBAL_MNT_SHELL: Shell = createRootShell(true)
+    // Lazy: avoid blocking the first UI frame while spawning su.
+    val SHELL: Shell by lazy { createRootShell() }
+    val GLOBAL_MNT_SHELL: Shell by lazy { createRootShell(true) }
+    // libsu Shell is not safe for overlapping cancelled jobs; serialize shared access.
+    val shellMutex = Mutex()
 }
+
+private suspend inline fun <T> withSharedRootShell(crossinline block: (Shell) -> T): T =
+    withContext(Dispatchers.IO) {
+        KsuCli.shellMutex.withLock {
+            block(getRootShell())
+        }
+    }
 
 fun getRootShell(globalMnt: Boolean = false): Shell {
     return if (globalMnt) KsuCli.GLOBAL_MNT_SHELL else {
@@ -452,15 +464,16 @@ fun rootAvailable(): Boolean {
     return shell.isRoot
 }
 
+suspend fun probeRootAvailable(): Boolean = withSharedRootShell { shell ->
+    shell.isRoot
+}
 
-suspend fun getCurrentKmi(): String = withContext(Dispatchers.IO) {
-    val shell = getRootShell()
+suspend fun getCurrentKmi(): String = withSharedRootShell { shell ->
     val cmd = "boot-info current-kmi"
     ShellUtils.fastCmd(shell, "${getKsuDaemonPath()} $cmd")
 }
 
-suspend fun getSupportedKmis(): List<String> = withContext(Dispatchers.IO) {
-    val shell = getRootShell()
+suspend fun getSupportedKmis(): List<String> = withSharedRootShell { shell ->
     val cmd = "boot-info supported-kmis"
     val out = shell.newJob().add("${getKsuDaemonPath()} $cmd").to(ArrayList(), null).exec().out
     out.filter { it.isNotBlank() }.map { it.trim() }
@@ -475,9 +488,10 @@ suspend fun classifyBootImage(uri: Uri): String = withContext(Dispatchers.IO) {
             }
         } ?: return@withContext "unknown"
 
-        val shell = getRootShell()
-        val cmd = "boot-info classify-image ${image.absolutePath}"
-        ShellUtils.fastCmd(shell, "${getKsuDaemonPath()} $cmd").trim().ifBlank { "unknown" }
+        withSharedRootShell { shell ->
+            val cmd = "boot-info classify-image ${image.absolutePath}"
+            ShellUtils.fastCmd(shell, "${getKsuDaemonPath()} $cmd").trim().ifBlank { "unknown" }
+        }
     } catch (e: Throwable) {
         Log.w(TAG, "classify boot image failed", e)
         "unknown"
@@ -486,14 +500,12 @@ suspend fun classifyBootImage(uri: Uri): String = withContext(Dispatchers.IO) {
     }
 }
 
-suspend fun isAbDevice(): Boolean = withContext(Dispatchers.IO) {
-    val shell = getRootShell()
+suspend fun isAbDevice(): Boolean = withSharedRootShell { shell ->
     val cmd = "boot-info is-ab-device"
     ShellUtils.fastCmd(shell, "${getKsuDaemonPath()} $cmd").trim().toBoolean()
 }
 
-suspend fun getDefaultPartition(): String = withContext(Dispatchers.IO) {
-    val shell = getRootShell()
+suspend fun getDefaultPartition(): String = withSharedRootShell { shell ->
     if (shell.isRoot) {
         val cmd = "boot-info default-partition"
         ShellUtils.fastCmd(shell, "${getKsuDaemonPath()} $cmd").trim()
@@ -502,8 +514,7 @@ suspend fun getDefaultPartition(): String = withContext(Dispatchers.IO) {
     }
 }
 
-suspend fun getSlotSuffix(ota: Boolean): String = withContext(Dispatchers.IO) {
-    val shell = getRootShell()
+suspend fun getSlotSuffix(ota: Boolean): String = withSharedRootShell { shell ->
     val cmd = if (ota) {
         "boot-info slot-suffix --ota"
     } else {
@@ -512,8 +523,7 @@ suspend fun getSlotSuffix(ota: Boolean): String = withContext(Dispatchers.IO) {
     ShellUtils.fastCmd(shell, "${getKsuDaemonPath()} $cmd").trim()
 }
 
-suspend fun getAvailablePartitions(): List<String> = withContext(Dispatchers.IO) {
-    val shell = getRootShell()
+suspend fun getAvailablePartitions(): List<String> = withSharedRootShell { shell ->
     val cmd = "boot-info available-partitions"
     val out = shell.newJob().add("${getKsuDaemonPath()} $cmd").to(ArrayList(), null).exec().out
     out.filter { it.isNotBlank() }.map { it.trim() }
