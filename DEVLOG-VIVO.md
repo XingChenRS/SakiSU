@@ -1,13 +1,171 @@
 # DEVLOG: vivo / iQOO compatibility
 
-This file records behavior implemented in code. Keep it aligned with:
+This file records the evolution of vivo/iQOO compatibility implementation.
 
-- `userspace/ksud/src/boot_patch.rs`
-- `manager/app/src/main/java/com/sakisu/sakisu/ui/util/KsuCli.kt`
-- `manager/app/src/main/java/com/sakisu/sakisu/ui/screen/Install.kt`
-- `.github/workflows/ddk-lkm.yml`
+**Current approach (2026-07-21+):**
+- Runtime vermagic fallback in ksuinit (commit 0c0867a0)
+- Kernel init_module hook for vr.ko blocking (commit fc295db9)
+- No build-time _vivo LKM variants
+- No vendor_boot cold removal by default
 
-User-facing background and usage live in `docs/zh/vivo.md` and `docs/vivo.md`.
+**Legacy approach (deprecated 2026-07-21):**
+- Build-time vermagic injection for _vivo KMI variants
+- Cold removal of vr.ko from vendor_boot
+- See git history before commit 042832a8 for implementation details
+
+---
+
+## Current Implementation
+
+### Runtime vermagic fallback (ksuinit)
+
+`userspace/ksuinit/src/lib.rs` implements automatic vermagic mismatch recovery:
+
+1. First `init_module` attempt
+2. On failure, open `/dev/kmsg` and seek to end
+3. Parse new kernel messages for "version magic ... should be '<vermagic>'"
+4. Extract required vermagic from kernel log
+5. Parse ELF64 module, locate `.modinfo` section
+6. Replace `vermagic=` entry with kernel-required value
+7. Update ELF section header `sh_size`
+8. Retry `init_module` with patched module
+
+Safety boundaries:
+- Only triggers on first failure with vermagic mismatch log
+- Strict ELF64 validation (magic, type, bounds)
+- Falls back to original error if parsing fails
+- No disk modification, only in-memory patching
+
+### Kernel vr.ko blocking (init_module filter)
+
+`kernel/hook/init_module_filter.c` intercepts arm64 `__NR_init_module`:
+
+1. Hook registered via `ksu_register_syscall_hook()`
+2. On syscall entry, allocate kernel buffer (up to 64KB)
+3. `copy_from_user()` module image from userspace
+4. Parse ELF64 header + section table + `.modinfo`
+5. Extract `name=` field from NUL-separated entries
+6. If name exactly equals `"vr"`, return 0 (fake success)
+7. Otherwise call original `ksu_syscall_table[__NR_init_module](regs)`
+
+Safety boundaries:
+- arm64-only (`#ifdef __aarch64__`)
+- Strict bounds checking on all ELF offsets
+- Any parse error → call original syscall
+- Only precise string match triggers block
+- `kmalloc()` failure → call original syscall
+
+Integration:
+- Registered in `ksu_syscall_hook_manager_init()`
+- Unregistered in `ksu_syscall_hook_manager_exit()`
+- Added to `kernel/Kbuild`
+
+---
+
+## Code Alignment
+
+Keep aligned with:
+- `userspace/ksuinit/src/lib.rs` - vermagic fallback
+- `kernel/hook/init_module_filter.c` - vr blocking
+- `kernel/hook/syscall_hook_manager.c` - hook lifecycle
+- `.github/workflows/ddk-lkm.yml` - single universal LKM build
+
+User-facing docs:
+- `docs/zh/vivo.md` (Chinese)
+- `docs/vivo.md` (English)
+
+---
+
+## Deprecated Implementation (archived)
+
+### Build-time _vivo LKM (removed 2026-07-21)
+
+**What it did:**
+- `.github/workflows/build-lkm-vivo.yml` - matrix build for all KMI
+- `.github/workflows/ddk-lkm.yml` - `vivo: true` input parameter
+- Injected hardcoded vermagic strings for specific KMI versions
+- Produced `<kmi>_vivo_kernelsu.ko` artifacts
+
+**Why deprecated:**
+- Runtime vermagic fallback is more robust
+- No need to maintain KMI-specific templates
+- Works across kernel updates without LKM rebuild
+- Single universal LKM for all devices
+
+**Removed in:** commit 042832a8
+
+### Cold vr.ko removal (legacy fallback)
+
+**What it did:**
+- `ksud boot-patch-vivo` subcommand
+- Detected `vendor_boot` by ramdisk content
+- Removed `vr.ko` and `modules.*` references
+- Did not inject KernelSU LKM into vendor_boot
+
+**Status:**
+- Command may still exist for compatibility
+- Not the default vivo approach
+- Kernel hook is preferred (no partition modification)
+
+---
+
+## Migration Notes
+
+### For developers
+
+Old code references to remove:
+- `_vivo` KMI suffix in UI/CLI
+- `boot-patch-vivo` as default path
+- KMI selection prompts mentioning vivo variants
+- Hardcoded vermagic templates
+
+New behavior:
+- All vivo devices use standard LKM
+- ksuinit handles vermagic automatically
+- Kernel blocks vr.ko transparently
+- No user-visible vivo-specific artifacts
+
+### For users
+
+Old workflow (deprecated):
+1. Enable vivo switch
+2. Select `init_boot.img`
+3. Manually choose `_vivo` KMI from dialog
+4. Flash patched image
+
+New workflow (current):
+1. Enable vivo switch (optional, for future features)
+2. Select `init_boot.img`
+3. Use any standard KMI (no _vivo suffix)
+4. Flash patched image
+5. ksuinit auto-adapts vermagic on first boot
+6. Kernel auto-blocks vr.ko if present
+
+---
+
+## Known Limitations
+
+1. **init_module only**: Does not cover `finit_module` (Android init rarely uses it)
+2. **arm64 only**: x86_64 and other arches not implemented
+3. **Requires KSU LKM loads before vr.ko**: Init order dependency
+4. **No vr.ko detection in finit_module**: If vivo changes loading method, hook needs update
+
+## Testing Checklist
+
+- [ ] Vivo device boots with standard (non-_vivo) LKM
+- [ ] ksuinit retries on vermagic mismatch
+- [ ] vr.ko load attempts are blocked (check dmesg)
+- [ ] Other vendor modules load normally
+- [ ] Manager shows KernelSU version correctly
+- [ ] Root permissions work as expected
+
+---
+
+## References
+
+- Upstream vermagic commit: ReSukiSU/ReSukiSU@83d1806
+- CVE-2023-46139 fix: tiann/KernelSU@d24813b2
+- SakiSU implementation: commits 0c0867a0, fc295db9, 042832a8
 
 ## Scope
 
