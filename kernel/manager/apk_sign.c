@@ -270,6 +270,7 @@ static __always_inline bool check_v2_signature(char *path, u8 *signature_index)
     }
 
     int loop_count = 0;
+    bool first_v2_block_seen = false;
     while (loop_count++ < 10) {
         uint32_t id;
         uint32_t offset;
@@ -282,6 +283,18 @@ static __always_inline bool check_v2_signature(char *path, u8 *signature_index)
         offset = 4;
         if (id == 0x7109871au) {
             v2_signing_blocks++;
+
+            // CVE-2023-46139: only process the FIRST v2 block (Android behavior)
+            // Reject APKs with multiple v2 blocks
+            if (first_v2_block_seen) {
+#ifdef CONFIG_KSU_DEBUG
+                pr_err("Duplicate v2 signature block detected, rejecting\n");
+#endif
+                v2_signing_valid = false;
+                goto clean;
+            }
+            first_v2_block_seen = true;
+
             bool result = check_block(fp, &size4, &pos, &offset, &matched_index);
             if (result) {
                 v2_signing_valid = true;
@@ -304,16 +317,29 @@ static __always_inline bool check_v2_signature(char *path, u8 *signature_index)
 
     if (v2_signing_blocks != 1) {
 #ifdef CONFIG_KSU_DEBUG
-        pr_err("Unexpected v2 signature count: %d\n", v2_signing_blocks);
+        pr_err("Unexpected v2 signature count: %d (expected exactly 1)\n", v2_signing_blocks);
 #endif
         v2_signing_valid = false;
+    }
+
+    // CVE-2023-46139: Prevent v1-only APKs and v1 downgrade attacks
+    // If no valid v2 signature, check if v1 exists and reject it
+    if (!v2_signing_valid) {
+        int has_v1 = has_v1_signature_file(fp);
+        if (has_v1) {
+#ifdef CONFIG_KSU_DEBUG
+            pr_err("APK has v1 signature but no valid v2; rejecting to prevent downgrade\n");
+#endif
+        }
+        // Always reject when v2 is invalid, regardless of v1 presence
+        goto clean;
     }
 
 #ifdef CONFIG_KSU_DEBUG
     if (v2_signing_valid) {
         int has_v1_signing = has_v1_signature_file(fp);
         if (has_v1_signing) {
-            pr_info("APK also carries a v1 signature scheme; relying on package verifier cross-check.\n");
+            pr_info("APK has both v1 and v2 signatures; v2 takes precedence per Android spec.\n");
         }
     }
 #endif
