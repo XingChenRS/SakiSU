@@ -12,18 +12,18 @@ SakiSU 是基于 [ReSukiSU](https://github.com/ReSukiSU/ReSukiSU) 的下游分�
 
 - KernelSU/SukiSU 系内核级 `su` 与 root 授权管理。
 - 模块系统、App Profile、SuSFS/tracepoint 等上游能力。
-- vivo/iQOO 兼容模式：同一个开关用于“去除vr或适配vivo特性”。
-- vivo `vendor_boot` 路径只移除 `vr.ko`，不会注入 KernelSU LKM。
-- vivo `init_boot`/boot 路径继续注入 LKM，并优先使用 `_vivo` KMI/LKM 变体。
+- **vivo/iQOO 兼容**：运行时 vermagic 适配 + 内核 vr.ko 拦截，单一标准 LKM。
 - CI 保留长期签名密钥优先、临时同批次签名兜底的构建流程。
 
 ## vivo/iQOO 快速说明
 
-Manager 中的 vivo 开关含义是 **“去除vr或适配vivo特性”**。
+SakiSU 为 vivo/iQOO 设备提供自动化兼容：
 
-- 选择 `vendor_boot.img` 时，SakiSU 会自动识别 vendor ramdisk，清理 `vr.ko` 及其 `modules.*` 引用，不弹出不必要的 KMI 选择，也不注入 LKM。
-- 选择 `init_boot.img` 或兼容 boot ramdisk 时，SakiSU 走正常 LKM 注入流程，并优先选择 `_vivo` KMI/LKM。
-- rmvr 和 LKM 注入互不依赖。可以只修补 `vendor_boot` 去除 `vr.ko`，也可以只修补 `init_boot` 注入 KernelSU。
+- **运行时 vermagic 适配**：ksuinit 在模块加载失败时自动读取内核日志并修正 vermagic 后重试。
+- **内核 vr.ko 拦截**：通过 arm64 `init_module` syscall hook 精确阻止 `vr` 模块加载。
+- **单一标准 LKM**：所有设备使用相同 KernelSU 模块，无需 `_vivo` 变体。
+
+Manager 中的 vivo 开关「去除vr或适配vivo特性」控制兼容逻辑。
 
 完整背景、风险说明和教程见 [docs/zh/vivo.md](docs/zh/vivo.md)。
 
