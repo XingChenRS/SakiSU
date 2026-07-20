@@ -17,8 +17,9 @@ SakiSU is a downstream fork of ReSukiSU. This file locks the upstream baseline u
 | Baseline commit | `e8f607a2cb1eb6f153809987eccd0d7a40ea1f70` |
 | Baseline subject | `manager: implement dynamic manager settings, aspect-locked cropping and other minimal fixes` |
 | Sync branch | `sync/resukisu-main-20260705` |
-| Sync HEAD (as of 2026-07-06) | `110ee55838c514f58ca945a27d6656f414f17c74` |
-| Commits ahead of baseline | 9 |
+| Sync HEAD (as of 2026-07-21) | `0f6a33f15c0b709a74c5376004457f8374d89e93` |
+| Commits ahead of baseline | 10 |
+| Local baseline tag | `sakisu-sync-baseline-20260721` |
 
 ## How to refresh
 
