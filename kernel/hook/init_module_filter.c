@@ -2,238 +2,225 @@
 #include <linux/slab.h>
 #include <linux/elf.h>
 #include <linux/string.h>
+#include <linux/fs.h>
+#include <linux/file.h>
 
 #include "arch.h"
-#include "klog.h"
+#include "klog.h" // IWYU pragma: keep
 #include "hook/syscall_hook.h"
 #include "hook/init_module_filter.h"
+#include "compat/kernel_compat.h"
 
-// Maximum size to read from user for ELF parsing (64KB)
-#define MAX_MODULE_HEADER_SIZE (64 * 1024)
+// Bounds for ELF metadata parsing. A kernel module's ELF header, section
+// table, section-name string table and .modinfo are all small; the module
+// body (text/data) can be hundreds of KiB, but we never read the whole
+// image -- only the pieces needed to extract the module name.
+#define KSU_MAX_SECTIONS 512
+#define KSU_MAX_SHSTRTAB (64 * 1024)
+#define KSU_MAX_MODINFO (16 * 1024)
 
-// Maximum .modinfo section size to parse (16KB)
-#define MAX_MODINFO_SIZE (16 * 1024)
+// Abstract source of an ELF module image. init_module(2) passes a userspace
+// buffer; finit_module(2) passes a file descriptor. Both are read at explicit
+// offsets so we never have to slurp the entire (large) module into memory.
+struct ksu_elf_reader {
+    const char __user *umod; // init_module source, NULL for the file path
+    unsigned long umod_len;
+    struct file *file; // finit_module source, NULL for the user path
+    loff_t file_size;
+};
 
-// Maximum module name length (Linux kernel uses 56 for module->name)
-#define MODULE_NAME_LEN 64
-
-/**
- * Extract module name from ELF .modinfo section.
- * Returns 0 on success, negative on error.
- * name_out must have at least MODULE_NAME_LEN bytes.
- */
-static int extract_module_name(const void *elf_data, unsigned long len, char *name_out, size_t name_out_size)
+// Read exactly @len bytes at @offset into @buf, with full bounds checking.
+// Returns 0 on success, negative on any error (so callers fail open).
+static int ksu_reader_read(struct ksu_elf_reader *r, loff_t offset, void *buf, size_t len)
 {
-    const Elf64_Ehdr *ehdr;
-    const Elf64_Shdr *shdr;
-    const char *shstrtab;
-    const Elf64_Shdr *shstrtab_shdr;
-    const Elf64_Shdr *modinfo_shdr = NULL;
-    const char *modinfo_data;
-    unsigned long modinfo_size;
-    unsigned long i;
-    const char *p, *end;
+    loff_t total = r->umod ? (loff_t)r->umod_len : r->file_size;
 
-    // Validate minimum size
-    if (len < sizeof(Elf64_Ehdr)) {
+    if (len == 0)
         return -EINVAL;
-    }
-
-    ehdr = (const Elf64_Ehdr *)elf_data;
-
-    // Validate ELF magic
-    if (memcmp(ehdr->e_ident, ELFMAG, SELFMAG) != 0) {
-        return -EINVAL;
-    }
-
-    // Only support ELF64
-    if (ehdr->e_ident[EI_CLASS] != ELFCLASS64) {
-        return -EINVAL;
-    }
-
-    // Only support ET_REL (relocatable)
-    if (ehdr->e_type != ET_REL) {
-        return -EINVAL;
-    }
-
-    // Validate section header table
-    if (ehdr->e_shoff == 0 || ehdr->e_shnum == 0 || ehdr->e_shentsize != sizeof(Elf64_Shdr)) {
-        return -EINVAL;
-    }
-
-    // Check section header table bounds
-    if (ehdr->e_shoff > len ||
-        ehdr->e_shoff + (unsigned long)ehdr->e_shnum * sizeof(Elf64_Shdr) > len) {
+    if (offset < 0 || (loff_t)len > total || offset > total - (loff_t)len)
         return -ERANGE;
-    }
 
-    // Validate section name string table index
-    if (ehdr->e_shstrndx >= ehdr->e_shnum) {
-        return -EINVAL;
-    }
-
-    shdr = (const Elf64_Shdr *)((const char *)elf_data + ehdr->e_shoff);
-    shstrtab_shdr = &shdr[ehdr->e_shstrndx];
-
-    // Validate section name string table bounds
-    if (shstrtab_shdr->sh_offset > len ||
-        shstrtab_shdr->sh_offset + shstrtab_shdr->sh_size > len) {
-        return -ERANGE;
-    }
-
-    shstrtab = (const char *)elf_data + shstrtab_shdr->sh_offset;
-
-    // Find .modinfo section
-    for (i = 0; i < ehdr->e_shnum; i++) {
-        const Elf64_Shdr *sh = &shdr[i];
-        const char *name;
-
-        // Validate section name offset
-        if (sh->sh_name >= shstrtab_shdr->sh_size) {
-            continue;
-        }
-
-        name = shstrtab + sh->sh_name;
-
-        // Check for NUL termination within bounds
-        if (strnlen(name, shstrtab_shdr->sh_size - sh->sh_name) >= shstrtab_shdr->sh_size - sh->sh_name) {
-            continue;
-        }
-
-        if (strcmp(name, ".modinfo") == 0) {
-            modinfo_shdr = sh;
-            break;
-        }
-    }
-
-    if (!modinfo_shdr) {
-        return -ENOENT;
-    }
-
-    // Validate .modinfo section bounds
-    if (modinfo_shdr->sh_offset > len ||
-        modinfo_shdr->sh_offset + modinfo_shdr->sh_size > len) {
-        return -ERANGE;
-    }
-
-    modinfo_data = (const char *)elf_data + modinfo_shdr->sh_offset;
-    modinfo_size = modinfo_shdr->sh_size;
-
-    // Limit parsing size
-    if (modinfo_size > MAX_MODINFO_SIZE) {
-        modinfo_size = MAX_MODINFO_SIZE;
-    }
-
-    // Parse NUL-separated key=value entries
-    p = modinfo_data;
-    end = modinfo_data + modinfo_size;
-
-    while (p < end) {
-        const char *entry_start = p;
-        const char *entry_end;
-        size_t entry_len;
-
-        // Find NUL terminator
-        entry_end = memchr(p, '\0', end - p);
-        if (!entry_end) {
-            // No more entries
-            break;
-        }
-
-        entry_len = entry_end - entry_start;
-
-        // Check for "name=" prefix
-        if (entry_len > 5 && memcmp(entry_start, "name=", 5) == 0) {
-            const char *value = entry_start + 5;
-            size_t value_len = entry_len - 5;
-
-            if (value_len >= name_out_size) {
-                return -ENAMETOOLONG;
-            }
-
-            memcpy(name_out, value, value_len);
-            name_out[value_len] = '\0';
-            return 0;
-        }
-
-        // Move to next entry
-        p = entry_end + 1;
-    }
-
-    // name= not found
-    return -ENOENT;
-}
-
-/**
- * Syscall hook for init_module.
- * Blocks loading of modules named "vr".
- */
-static long ksu_hook_init_module(int orig_nr, const struct pt_regs *regs)
-{
-    void __user *umod;
-    unsigned long len;
-    void *kernel_buf = NULL;
-    char module_name[MODULE_NAME_LEN];
-    int ret;
-
-    // Extract arguments from registers
-    // arm64: init_module(void *umod, unsigned long len, const char *uargs)
-    // regs[0] = umod, regs[1] = len, regs[2] = uargs
-    umod = (void __user *)PT_REGS_PARM1(regs);
-    len = (unsigned long)PT_REGS_PARM2(regs);
-
-    // Sanity check length
-    if (len == 0 || len > MAX_MODULE_HEADER_SIZE) {
-        // Too small or too large, let kernel handle it
-        goto call_original;
-    }
-
-    // Allocate kernel buffer for parsing
-    kernel_buf = kmalloc(len, GFP_KERNEL);
-    if (!kernel_buf) {
-        // Allocation failed, let kernel handle it
-        goto call_original;
-    }
-
-    // Copy module from user space
-    if (copy_from_user(kernel_buf, umod, len)) {
-        // Copy failed, let kernel handle it
-        goto cleanup_and_call_original;
-    }
-
-    // Extract module name
-    ret = extract_module_name(kernel_buf, len, module_name, sizeof(module_name));
-    if (ret < 0) {
-        // Extraction failed, let kernel handle it
-        goto cleanup_and_call_original;
-    }
-
-    // Check if this is "vr" module
-    if (strcmp(module_name, "vr") == 0) {
-        pr_info("init_module_filter: blocked vr module load\n");
-        kfree(kernel_buf);
-        // Return success to fake load
+    if (r->umod) {
+        if (copy_from_user(buf, r->umod + offset, len))
+            return -EFAULT;
         return 0;
     }
 
-    // Not vr, proceed normally
-cleanup_and_call_original:
-    kfree(kernel_buf);
+    loff_t pos = offset;
+    ssize_t n = ksu_kernel_read_compat(r->file, buf, len, &pos);
+    if (n < 0 || (size_t)n != len)
+        return -EIO;
+    return 0;
+}
 
-call_original:
-    // Call original syscall
-    return ksu_syscall_table[orig_nr](regs);
+// Returns true iff the ELF module's declared name (.modinfo "name=" entry)
+// is exactly "vr". Any parse failure, missing section, or mismatch returns
+// false so the original syscall proceeds unchanged.
+static bool ksu_module_is_vr(struct ksu_elf_reader *r)
+{
+    Elf64_Ehdr ehdr;
+    Elf64_Shdr *shdrs = NULL;
+    char *shstrtab = NULL;
+    char *modinfo = NULL;
+    Elf64_Shdr *shstr_sh;
+    Elf64_Shdr *modinfo_sh = NULL;
+    unsigned int shnum, i;
+    unsigned long shtab_bytes;
+    bool is_vr = false;
+
+    if (ksu_reader_read(r, 0, &ehdr, sizeof(ehdr)))
+        return false;
+
+    if (memcmp(ehdr.e_ident, ELFMAG, SELFMAG) != 0)
+        return false;
+    if (ehdr.e_ident[EI_CLASS] != ELFCLASS64)
+        return false;
+    if (ehdr.e_type != ET_REL)
+        return false;
+    if (ehdr.e_shentsize != sizeof(Elf64_Shdr))
+        return false;
+
+    shnum = ehdr.e_shnum;
+    if (shnum == 0 || shnum > KSU_MAX_SECTIONS)
+        return false;
+    if (ehdr.e_shstrndx >= shnum)
+        return false;
+
+    shtab_bytes = (unsigned long)shnum * sizeof(Elf64_Shdr);
+    shdrs = kmalloc(shtab_bytes, GFP_KERNEL);
+    if (!shdrs)
+        return false;
+    if (ksu_reader_read(r, ehdr.e_shoff, shdrs, shtab_bytes))
+        goto out;
+
+    // Read the section-name string table.
+    shstr_sh = &shdrs[ehdr.e_shstrndx];
+    if (shstr_sh->sh_size == 0 || shstr_sh->sh_size > KSU_MAX_SHSTRTAB)
+        goto out;
+    shstrtab = kmalloc(shstr_sh->sh_size, GFP_KERNEL);
+    if (!shstrtab)
+        goto out;
+    if (ksu_reader_read(r, shstr_sh->sh_offset, shstrtab, shstr_sh->sh_size))
+        goto out;
+
+    // Locate the .modinfo section.
+    for (i = 0; i < shnum; i++) {
+        Elf64_Shdr *sh = &shdrs[i];
+        const char *name;
+        unsigned long remaining;
+
+        if (sh->sh_name >= shstr_sh->sh_size)
+            continue;
+        name = shstrtab + sh->sh_name;
+        remaining = shstr_sh->sh_size - sh->sh_name;
+        if (strnlen(name, remaining) >= remaining)
+            continue; // not NUL-terminated within bounds
+        if (strcmp(name, ".modinfo") == 0) {
+            modinfo_sh = sh;
+            break;
+        }
+    }
+    if (!modinfo_sh)
+        goto out;
+
+    if (modinfo_sh->sh_size == 0 || modinfo_sh->sh_size > KSU_MAX_MODINFO)
+        goto out;
+    modinfo = kmalloc(modinfo_sh->sh_size, GFP_KERNEL);
+    if (!modinfo)
+        goto out;
+    if (ksu_reader_read(r, modinfo_sh->sh_offset, modinfo, modinfo_sh->sh_size))
+        goto out;
+
+    // .modinfo is a sequence of NUL-separated "key=value" entries. Find the
+    // "name=" entry and compare its value against "vr".
+    {
+        const char *p = modinfo;
+        const char *end = modinfo + modinfo_sh->sh_size;
+
+        while (p < end) {
+            const char *nul = memchr(p, '\0', end - p);
+            size_t entlen;
+
+            if (!nul)
+                break;
+            entlen = nul - p;
+            if (entlen > 5 && memcmp(p, "name=", 5) == 0) {
+                const char *val = p + 5;
+                size_t vlen = entlen - 5;
+
+                if (vlen == 2 && val[0] == 'v' && val[1] == 'r')
+                    is_vr = true;
+                break; // module name is unique; stop after the first name=
+            }
+            p = nul + 1;
+        }
+    }
+
+out:
+    kfree(modinfo);
+    kfree(shstrtab);
+    kfree(shdrs);
+    return is_vr;
+}
+
+// init_module(2): sys_init_module(void __user *umod, unsigned long len,
+//                                 const char __user *uargs)
+static long (*orig_sys_init_module)(const struct pt_regs *regs);
+static long ksu_sys_init_module(const struct pt_regs *regs)
+{
+    struct ksu_elf_reader r = {
+        .umod = (const char __user *)PT_REGS_PARM1(regs),
+        .umod_len = (unsigned long)PT_REGS_PARM2(regs),
+        .file = NULL,
+        .file_size = 0,
+    };
+
+    if (r.umod && r.umod_len >= sizeof(Elf64_Ehdr) && ksu_module_is_vr(&r)) {
+        pr_info("init_module_filter: blocked vr (init_module)\n");
+        return 0;
+    }
+
+    return orig_sys_init_module(regs);
+}
+
+// finit_module(2): sys_finit_module(int fd, const char __user *uargs, int flags)
+static long (*orig_sys_finit_module)(const struct pt_regs *regs);
+static long ksu_sys_finit_module(const struct pt_regs *regs)
+{
+    int fd = (int)PT_REGS_PARM1(regs);
+    struct file *file = fget(fd);
+    bool is_vr = false;
+
+    if (file) {
+        struct ksu_elf_reader r = {
+            .umod = NULL,
+            .umod_len = 0,
+            .file = file,
+            .file_size = i_size_read(file_inode(file)),
+        };
+
+        if (r.file_size >= (loff_t)sizeof(Elf64_Ehdr))
+            is_vr = ksu_module_is_vr(&r);
+        fput(file);
+    }
+
+    if (is_vr) {
+        pr_info("init_module_filter: blocked vr (finit_module)\n");
+        return 0;
+    }
+
+    return orig_sys_finit_module(regs);
 }
 
 void __init ksu_init_module_filter_init(void)
 {
 #ifdef __aarch64__
-    int ret = ksu_register_syscall_hook(__NR_init_module, ksu_hook_init_module);
-    if (ret == 0) {
-        pr_info("init_module_filter: registered for __NR_init_module\n");
-    } else {
-        pr_err("init_module_filter: failed to register hook: %d\n", ret);
-    }
+    // Direct syscall-table patching (NOT the dispatcher API): vr.ko is loaded
+    // by vendor init, which is never tracepoint-marked, so a dispatcher hook
+    // would never see it. Patching the table intercepts every process.
+    ksu_syscall_table_hook(__NR_init_module, ksu_sys_init_module, &orig_sys_init_module);
+    ksu_syscall_table_hook(__NR_finit_module, ksu_sys_finit_module, &orig_sys_finit_module);
+    pr_info("init_module_filter: hooked init_module + finit_module\n");
 #else
     pr_info("init_module_filter: skipped (not arm64)\n");
 #endif
@@ -242,7 +229,8 @@ void __init ksu_init_module_filter_init(void)
 void __exit ksu_init_module_filter_exit(void)
 {
 #ifdef __aarch64__
-    ksu_unregister_syscall_hook(__NR_init_module);
-    pr_info("init_module_filter: unregistered\n");
+    ksu_syscall_table_unhook(__NR_init_module);
+    ksu_syscall_table_unhook(__NR_finit_module);
+    pr_info("init_module_filter: unhooked\n");
 #endif
 }
