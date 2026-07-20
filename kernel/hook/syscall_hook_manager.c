@@ -16,6 +16,7 @@
 #include "arch.h"
 #include "klog.h" // IWYU pragma: keep
 #include "hook/syscall_hook_manager.h"
+#include "hook/init_module_filter.h"
 #include "hook/tp_marker.h"
 #include "feature/sucompat.h"
 #include "hook/setuid_hook.h"
@@ -137,6 +138,9 @@ void __init ksu_syscall_hook_manager_init(void)
     ksu_register_syscall_hook(__NR_newfstatat, ksu_hook_newfstatat);
     ksu_register_syscall_hook(__NR_faccessat, ksu_hook_faccessat);
 
+    // Register init_module filter for vr.ko blocking
+    ksu_init_module_filter_init();
+
 #ifdef CONFIG_HAVE_SYSCALL_TRACEPOINTS
     ret = register_trace_sys_enter(ksu_sys_enter_handler, NULL);
 #ifndef CONFIG_KRETPROBES
@@ -156,6 +160,10 @@ void __init ksu_syscall_hook_manager_init(void)
 void __exit ksu_syscall_hook_manager_exit(void)
 {
     pr_info("hook_manager: ksu_hook_manager_exit called\n");
+
+    // Unregister init_module filter first
+    ksu_init_module_filter_exit();
+
 #ifdef CONFIG_HAVE_SYSCALL_TRACEPOINTS
     unregister_trace_sys_enter(ksu_sys_enter_handler, NULL);
     tracepoint_synchronize_unregister();
