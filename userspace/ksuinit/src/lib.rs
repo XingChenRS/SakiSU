@@ -1,10 +1,11 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use goblin::elf::{Elf, section_header, sym::Sym};
 use scroll::{Pwrite, ctx::SizeWith};
 use std::collections::HashMap;
 use std::ffi::CStr;
-use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+use std::fs::{self, File, OpenOptions};
+use std::io::{BufRead, BufReader, ErrorKind, Read, Seek, SeekFrom};
+use std::os::unix::fs::OpenOptionsExt;
 use syscalls::{Sysno, syscall};
 
 struct Kptr {
@@ -124,189 +125,304 @@ pub fn load_module(data: &[u8], params: &CStr) -> Result<()> {
         log::warn!("Cannot find symbol: {}", name);
     }
 
-    // Try init_module with vermagic mismatch fallback
-    try_load_with_vermagic_fallback(&mut buffer, params)?;
+    // Open the kernel log BEFORE the first init_module and seek to the end,
+    // so read_new_kmsg() only returns messages produced by THIS load attempt.
+    // Doing this after a failure would race the log and miss the mismatch line.
+    let mut kmsg = match open_kmsg_at_end() {
+        Ok(file) => Some(file),
+        Err(error) => {
+            log::warn!("Cannot prepare kmsg fallback: {error:#}");
+            None
+        }
+    };
+
+    match do_init_module(&buffer, params) {
+        Ok(()) => Ok(()),
+        Err(first_error) => {
+            log::warn!("init_module failed on first attempt: {:?}", first_error);
+
+            let logs = match kmsg.as_mut() {
+                Some(file) => read_new_kmsg(file).unwrap_or_default(),
+                None => String::new(),
+            };
+
+            let Some(required_vermagic) = extract_required_vermagic(&logs) else {
+                log::error!(
+                    "init_module failed without a version-magic mismatch. Kernel log:\n{}",
+                    logs
+                );
+                return Err(anyhow::anyhow!("init_module failed: {:?}", first_error));
+            };
+
+            log::warn!(
+                "Kernel requires vermagic {:?}; replacing and retrying",
+                required_vermagic
+            );
+
+            replace_module_vermagic(&mut buffer, &required_vermagic)
+                .context("Cannot replace module vermagic")?;
+
+            do_init_module(&buffer, params).map_err(|e| {
+                anyhow::anyhow!("init_module failed after replacing vermagic: {:?}", e)
+            })?;
+            Ok(())
+        }
+    }
+}
+
+/// Invoke the raw init_module(2) syscall.
+///
+/// The vendored rustix fork gates `rustix::system` out on non-Linux targets,
+/// so we call the syscall directly to keep the module-loading path portable.
+fn do_init_module(buffer: &[u8], params: &CStr) -> std::result::Result<(), syscalls::Errno> {
+    unsafe {
+        syscall!(
+            Sysno::init_module,
+            buffer.as_ptr(),
+            buffer.len(),
+            params.as_ptr()
+        )
+    }
+    .map(|_| ())
+}
+
+const O_NONBLOCK_FLAG: i32 = 0x800;
+
+/// Open the kernel log device with O_NONBLOCK and seek to its end.
+///
+/// O_NONBLOCK is essential: /dev/kmsg is an endless stream, so a blocking read
+/// never reaches EOF and would hang init forever.
+fn open_kmsg_at_end() -> Result<File> {
+    let mut last_error = None;
+
+    for path in ["/dev/kmsg", "/kmsg"] {
+        match OpenOptions::new()
+            .read(true)
+            .custom_flags(O_NONBLOCK_FLAG)
+            .open(path)
+        {
+            Ok(mut file) => {
+                file.seek(SeekFrom::End(0))
+                    .with_context(|| format!("Cannot seek {path} to end"))?;
+                log::info!("Reading kernel log from {path}");
+                return Ok(file);
+            }
+            Err(error) => {
+                last_error = Some((path, error));
+            }
+        }
+    }
+
+    match last_error {
+        Some((path, error)) => {
+            Err(error).with_context(|| format!("Cannot open kernel log device, last tried {path}"))
+        }
+        None => bail!("No kernel log device candidate"),
+    }
+}
+
+/// Drain every currently-available record from a non-blocking kmsg file.
+fn read_new_kmsg(file: &mut File) -> Result<String> {
+    let mut output = Vec::new();
+    let mut record = [0u8; 8192];
+
+    loop {
+        match file.read(&mut record) {
+            Ok(0) => break,
+            Ok(length) => {
+                output.extend_from_slice(&record[..length]);
+                output.push(b'\n');
+            }
+            Err(error) if error.kind() == ErrorKind::WouldBlock => break,
+            Err(error) => return Err(error).context("Cannot read kmsg"),
+        }
+    }
+
+    Ok(String::from_utf8_lossy(&output).into_owned())
+}
+
+/// Extract the kernel-required vermagic from a version-magic mismatch log line.
+///
+/// The kernel prints: `<name>: version magic '<module>' should be '<kernel>'`.
+/// Each kmsg record is prefixed with `<prio>,<seq>,<time>,<flags>;<message>`,
+/// so we strip everything up to the first `;` before matching.
+fn extract_required_vermagic(kmsg: &str) -> Option<String> {
+    const PREFIX: &str = "version magic '";
+    const SEPARATOR: &str = "' should be '";
+
+    for record in kmsg.lines().rev() {
+        let message = record
+            .split_once(';')
+            .map(|(_, message)| message)
+            .unwrap_or(record);
+
+        let Some(prefix_position) = message.find(PREFIX) else {
+            continue;
+        };
+        let after_prefix = &message[prefix_position + PREFIX.len()..];
+
+        let Some(separator_position) = after_prefix.find(SEPARATOR) else {
+            continue;
+        };
+        let required = &after_prefix[separator_position + SEPARATOR.len()..];
+
+        let Some(end_quote) = required.find('\'') else {
+            continue;
+        };
+        let required = &required[..end_quote];
+
+        if !required.is_empty() {
+            return Some(required.to_owned());
+        }
+    }
+
+    None
+}
+
+fn align_up(value: usize, alignment: usize) -> Result<usize> {
+    let alignment = alignment.max(1);
+
+    if !alignment.is_power_of_two() {
+        bail!("Invalid ELF alignment: {alignment}");
+    }
+
+    value
+        .checked_add(alignment - 1)
+        .map(|value| value & !(alignment - 1))
+        .context("ELF alignment overflow")
+}
+
+fn write_elf64_word(buffer: &mut [u8], offset: usize, value: u64, little_endian: bool) -> Result<()> {
+    let end = offset.checked_add(8).context("ELF write overflow")?;
+    let destination = buffer
+        .get_mut(offset..end)
+        .context("ELF write outside module buffer")?;
+
+    let bytes = if little_endian {
+        value.to_le_bytes()
+    } else {
+        value.to_be_bytes()
+    };
+    destination.copy_from_slice(&bytes);
     Ok(())
 }
 
-/// Try init_module, with vermagic mismatch fallback on first failure.
-fn try_load_with_vermagic_fallback(buffer: &mut Vec<u8>, params: &CStr) -> Result<()> {
-    // First attempt
-    let result = unsafe {
-        syscall!(
-            Sysno::init_module,
-            buffer.as_ptr(),
-            buffer.len(),
-            params.as_ptr()
-        )
-    };
+/// Replace the `vermagic=` entry in the module's `.modinfo` section.
+///
+/// Rather than editing `.modinfo` in place (which shifts every following
+/// section and corrupts their file offsets), a fresh `.modinfo` blob is
+/// appended to the end of the buffer and the section header is repointed at
+/// it. The original bytes are left orphaned; all other sections keep their
+/// original file offsets, so the module stays loadable.
+fn replace_module_vermagic(buffer: &mut Vec<u8>, required_vermagic: &str) -> Result<()> {
+    struct ModinfoLocation {
+        offset: usize,
+        size: usize,
+        section_header_offset: usize,
+        alignment: usize,
+        little_endian: bool,
+    }
 
-    match result {
-        Ok(_) => return Ok(()),
-        Err(e) => {
-            log::warn!("init_module failed on first attempt: {:?}", e);
+    let location = {
+        let elf = Elf::parse(buffer)?;
 
-            // Only try fallback if we can capture kmsg
-            match try_vermagic_fallback(buffer, params) {
-                Ok(_) => return Ok(()),
-                Err(fallback_err) => {
-                    return Err(anyhow::anyhow!(
-                        "init_module failed: {:?}; fallback: {:?}",
-                        e,
-                        fallback_err
-                    ));
-                }
-            }
+        if !elf.is_64 {
+            bail!("Only ELF64 modules are supported");
         }
-    }
-}
 
-/// Try to recover from vermagic mismatch by reading kmsg and patching module.
-fn try_vermagic_fallback(buffer: &mut Vec<u8>, params: &CStr) -> Result<()> {
-    // Open /dev/kmsg or /kmsg
-    let mut kmsg_file = fs::OpenOptions::new()
-        .read(true)
-        .open("/dev/kmsg")
-        .or_else(|_| fs::OpenOptions::new().read(true).open("/kmsg"))
-        .context("Cannot open kmsg")?;
+        let section_table_offset =
+            usize::try_from(elf.header.e_shoff).context("Section table offset overflow")?;
+        let section_entry_size = usize::from(elf.header.e_shentsize);
+        let mut location = None;
 
-    // Seek to end to capture only new messages
-    kmsg_file
-        .seek(SeekFrom::End(0))
-        .context("Cannot seek kmsg")?;
-
-    // Read recent kernel messages (limit to 16KB)
-    let mut recent_log = String::new();
-    let mut limited_reader = kmsg_file.take(16384);
-    limited_reader
-        .read_to_string(&mut recent_log)
-        .context("Cannot read kmsg")?;
-
-    // Look for version magic mismatch pattern in reverse
-    let required_vermagic = recent_log
-        .lines()
-        .rev()
-        .find_map(|line| {
-            if line.contains("version magic") && line.contains("should be") {
-                // Extract "should be '<vermagic>'" portion
-                line.split("should be '")
-                    .nth(1)
-                    .and_then(|s| s.split('\'').next())
-                    .map(|s| s.to_string())
-            } else {
-                None
+        for (index, section) in elf.section_headers.iter().enumerate() {
+            let Some(name) = elf.shdr_strtab.get_at(section.sh_name) else {
+                continue;
+            };
+            if name != ".modinfo" {
+                continue;
             }
-        })
-        .context("No version magic mismatch found in kmsg")?;
 
-    log::warn!(
-        "Kernel requires vermagic {:?}; patching module and retrying",
-        required_vermagic
-    );
+            let offset = usize::try_from(section.sh_offset).context(".modinfo offset overflow")?;
+            let size = usize::try_from(section.sh_size).context(".modinfo size overflow")?;
+            let end = offset
+                .checked_add(size)
+                .context(".modinfo range overflow")?;
 
-    // Parse ELF and replace vermagic in .modinfo
-    replace_module_vermagic(buffer, &required_vermagic)
-        .context("Cannot replace module vermagic")?;
+            if end > buffer.len() {
+                bail!(".modinfo is outside module buffer");
+            }
 
-    // Retry with patched module
-    let result = unsafe {
-        syscall!(
-            Sysno::init_module,
-            buffer.as_ptr(),
-            buffer.len(),
-            params.as_ptr()
-        )
+            let section_header_offset = section_table_offset
+                .checked_add(
+                    index
+                        .checked_mul(section_entry_size)
+                        .context("Section index overflow")?,
+                )
+                .context("Section header offset overflow")?;
+
+            location = Some(ModinfoLocation {
+                offset,
+                size,
+                section_header_offset,
+                alignment: usize::try_from(section.sh_addralign).unwrap_or(1).max(1),
+                little_endian: elf.little_endian,
+            });
+            break;
+        }
+
+        location.context("Module has no .modinfo section")?
     };
 
-    result.map(|_| ()).map_err(|e| {
-        anyhow::anyhow!("init_module failed after vermagic replacement: {:?}", e)
-    })
-}
+    let old_modinfo = &buffer[location.offset..location.offset + location.size];
+    let replacement = format!("vermagic={required_vermagic}");
+    let mut new_modinfo = Vec::with_capacity(old_modinfo.len().max(replacement.len() + 1));
+    let mut replaced = false;
 
-/// Replace vermagic= entry in module's .modinfo section.
-fn replace_module_vermagic(buffer: &mut Vec<u8>, new_vermagic: &str) -> Result<()> {
-    // First pass: extract all metadata before mutating buffer
-    let elf = Elf::parse(&*buffer).context("Invalid ELF")?;
+    for entry in old_modinfo.split(|byte| *byte == 0) {
+        if entry.is_empty() {
+            continue;
+        }
 
-    // Only support ELF64 relocatable
-    if !elf.is_64 || elf.header.e_type != goblin::elf::header::ET_REL {
-        anyhow::bail!("Module must be ELF64 relocatable");
-    }
-
-    // Find .modinfo section
-    let modinfo_section = elf
-        .section_headers
-        .iter()
-        .find(|sh| {
-            elf.shdr_strtab
-                .get_at(sh.sh_name)
-                .map_or(false, |name| name == ".modinfo")
-        })
-        .context("No .modinfo section")?;
-
-    let offset = modinfo_section.sh_offset as usize;
-    let size = modinfo_section.sh_size as usize;
-    let align = modinfo_section.sh_addralign as usize;
-    let shoff = elf.header.e_shoff as usize;
-    let shentsize = elf.header.e_shentsize as usize;
-    let modinfo_idx = elf
-        .section_headers
-        .iter()
-        .position(|sh| sh == modinfo_section)
-        .context("Cannot find .modinfo index")?;
-
-    if offset.checked_add(size).map_or(true, |end| end > buffer.len()) {
-        anyhow::bail!(".modinfo section out of bounds");
-    }
-
-    let modinfo_data = &buffer[offset..offset + size];
-
-    // Parse NUL-separated key=value entries
-    let entries: Vec<Vec<u8>> = modinfo_data
-        .split(|&b| b == 0)
-        .filter(|e| !e.is_empty())
-        .map(|e| e.to_vec())
-        .collect();
-
-    // Find vermagic= entry
-    let vermagic_prefix = b"vermagic=";
-    if !entries.iter().any(|e| e.starts_with(vermagic_prefix)) {
-        anyhow::bail!("No vermagic= entry in .modinfo");
-    }
-
-    // Build replacement
-    let new_entry = format!("vermagic={}", new_vermagic);
-    let new_entry_bytes = new_entry.into_bytes();
-
-    // Rebuild .modinfo: replace old entry with new, keep others
-    let mut new_modinfo = Vec::new();
-    for entry in &entries {
-        if entry.starts_with(vermagic_prefix) {
-            new_modinfo.extend_from_slice(&new_entry_bytes);
+        if entry.starts_with(b"vermagic=") {
+            if !replaced {
+                new_modinfo.extend_from_slice(replacement.as_bytes());
+                new_modinfo.push(0);
+                replaced = true;
+            }
         } else {
             new_modinfo.extend_from_slice(entry);
+            new_modinfo.push(0);
         }
-        new_modinfo.push(0); // NUL terminator
     }
 
-    // Align to section alignment
-    if align > 1 {
-        let padding = (align - (new_modinfo.len() % align)) % align;
-        new_modinfo.resize(new_modinfo.len() + padding, 0);
+    if !replaced {
+        new_modinfo.extend_from_slice(replacement.as_bytes());
+        new_modinfo.push(0);
     }
 
-    // Now mutate buffer: replace .modinfo
-    buffer.splice(offset..offset + size, new_modinfo.iter().cloned());
+    let new_offset = align_up(buffer.len(), location.alignment)?;
+    buffer.resize(new_offset, 0);
+    buffer.extend_from_slice(&new_modinfo);
 
-    // Update section header size in ELF
-    let new_size = new_modinfo.len() as u64;
-    let sh_size_offset = shoff + modinfo_idx * shentsize + 32; // sh_size is at +32 in Elf64_Shdr
-    if sh_size_offset + 8 > buffer.len() {
-        anyhow::bail!("Cannot update section header: out of bounds");
-    }
+    // Elf64_Shdr: sh_offset at +0x18, sh_size at +0x20.
+    write_elf64_word(
+        buffer,
+        location.section_header_offset + 0x18,
+        new_offset as u64,
+        location.little_endian,
+    )?;
+    write_elf64_word(
+        buffer,
+        location.section_header_offset + 0x20,
+        new_modinfo.len() as u64,
+        location.little_endian,
+    )?;
 
-    buffer[sh_size_offset..sh_size_offset + 8].copy_from_slice(&new_size.to_le_bytes());
-
+    log::warn!(
+        "Replaced module vermagic with kernel-required value: {:?}",
+        required_vermagic
+    );
     Ok(())
 }
 
