@@ -37,7 +37,7 @@ jobs:
           PROD_STORE_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
           PROD_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           PROD_KEY_PASS: ${{ secrets.KEY_PASSWORD }}
-          REQUIRE_PRODUCTION: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' }}
+          REQUIRE_PRODUCTION: ${{ github.ref == 'refs/heads/main' }}
         run: |
           if [ -n "$PROD_KEYSTORE" ] && [ -n "$PROD_STORE_PASS" ] && [ -n "$PROD_KEY_ALIAS" ] && [ -n "$PROD_KEY_PASS" ]; then
             echo "::notice::Using long-lived keystore from repository secrets."
@@ -83,7 +83,7 @@ jobs:
           KEY_ALIAS: ${{ steps.gen.outputs.extract_key_alias }}
           PROD_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           IS_EPHEMERAL: ${{ steps.gen.outputs.is_ephemeral }}
-          REQUIRE_PRODUCTION: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' }}
+          REQUIRE_PRODUCTION: ${{ github.ref == 'refs/heads/main' }}
         run: |
           STORE_PASSWORD="$STORE_PASS"
           if [ -z "$STORE_PASSWORD" ]; then
