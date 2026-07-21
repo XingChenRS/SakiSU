@@ -74,7 +74,7 @@
 - [ ] 从清空前的 git 历史恢复 `platform_probe.rs` 作为继承项种子（旧路径：`userspace/ksud/src/android/sakisu/platform_probe.rs`）
 - [ ] 复刻 `.github/copilot-instructions.md`（清空前已建好的协作规则）
 - [ ] 在 issue 区开一条 "watch SKRoot Pro open-source" 跟踪项
-- [x] 评估 `magiskboot` 借鉴方式：走 ksud 内嵌 boot patch（含 `patch_vivo`）；本地 `mk/` 保留预编译 magiskboot 作手动兜底，暂不摘代码到 `third_party/`
+- [x] 评估 `magiskboot` 借鉴方式：走 ksud 内嵌 boot patch（标准 `patch`）；本地 `mk/` 保留预编译 magiskboot 作手动兜底，暂不摘代码到 `third_party/`。vivo 适配已改为运行时方案（ksuinit vermagic fallback + 内核 vr 拦截），不再走冷移除 `patch_vivo`。
 
 ## 6. v0 待回答问题 → v1 决策
 

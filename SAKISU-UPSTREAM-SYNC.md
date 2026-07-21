@@ -20,32 +20,49 @@ Replay SakiSU-specific work on top of the newest ReSukiSU mainline in a clean, r
    - GitHub repository links: `XingChenRS/SakiSU`
    - Keep ReSukiSU as upstream credit only.
 
-2. vivo/iQOO support
-   - Manager switch text remains: `去除vr或适配vivo特性`.
-   - `vendor_boot` path removes `vr.ko` only and must not inject KernelSU LKM.
-   - `init_boot`/compatible boot ramdisk path keeps normal LKM injection and prefers `_vivo` KMI/LKM variants.
-   - `boot-patch-vivo` must auto-detect image kind from ramdisk content; do not depend on a UI partition value.
-   - `vr.ko` cleanup must cover `lib/modules` and `lib/modules/<version>-gki` roots, including `modules.load`, `modules.dep`, `modules.softdep`, and `modules.load.recovery`.
-   - Keep `boot-info classify-image` for Manager-side KMI dialog decisions.
-   - Avoid loading embedded LKM assets before the vendor_boot auto-detect path decides they are needed.
+2. vivo/iQOO support (fully automatic, runtime approach)
+   - Runtime vermagic fallback in `ksuinit`: on the first `init_module`
+     failure, read `/dev/kmsg`, extract the kernel-required version magic,
+     patch the in-memory module `.modinfo`, and retry. One universal LKM
+     serves every KMI; do not reintroduce `_vivo` build variants.
+   - Kernel `vr.ko` blocking in `init_module_filter.c`: hook arm64
+     `init_module`/`finit_module` via direct syscall-table patching and
+     return success for the module whose `.modinfo` `name=` is exactly
+     `vr`, without loading it. Any parse failure falls through to the
+     original syscall.
+   - Do not reintroduce cold removal of `vr.ko` from `vendor_boot`, the
+     `boot-patch-vivo` subcommand, `boot-info classify-image`, or any
+     manager-side vivo switch / `_vivo` KMI selection. Standard
+     `boot-patch` on `init_boot` is the only flow.
 
 3. Signing and manager trust policy
    - Do not return to forced v2-only APK signing.
-   - Kernel and ksud signature checks should accept a trusted v2 certificate; if v3 or v3.1 blocks are present, their certificates must be trusted too.
-   - Keep exact `base.apk` tracking; do not accept `base.apk.prof`, `base.apk.idsig`, or sibling artifacts as manager APKs.
+   - Reject duplicate v2 signature blocks (only the first is authoritative,
+     matching Android); reject v1-only APKs and v1-downgrade attacks.
+   - When v3 or v3.1 blocks are present, their certificates must also be
+     trusted (cross-verify against the same trust list). Kernel and ksud
+     must stay in sync (see CVE-2023-46139 / GHSA-86cp-3prf-pwqq).
+   - Keep exact `base.apk` tracking; do not accept `base.apk.prof`,
+     `base.apk.idsig`, or sibling artifacts as manager APKs.
 
 4. CI behavior
-   - Build workflows are push-triggered for release/test branches; `sync/**` is included so this branch can run Actions before dev/main.
+   - Build workflows are push-triggered for release/test branches; `sync/**`
+     is included so this branch can run Actions before dev/main.
    - Long-lived keystore secrets are preferred when present.
-   - Missing keystore secrets fall back to a self-consistent ephemeral key.
-   - Do not pass repository signing secrets through job outputs; only generated ephemeral keys may be shared that way.
+   - Missing keystore secrets fall back to a self-consistent ephemeral key
+     (allowed on `dev` and test branches; only `main` enforces production).
+   - Do not pass repository signing secrets through job outputs; only
+     generated ephemeral keys may be shared that way.
    - Crowdin must skip cleanly when Crowdin secrets are absent.
-   - Preserve normal and vivo LKM build artifacts.
+   - Build one universal LKM per KMI (no `_vivo` matrix).
 
 5. Documentation
    - Root `README.md` must exist.
-   - `docs/README.md`, `docs/zh/README.md`, `docs/vivo.md`, and `docs/zh/vivo.md` must describe current code behavior.
-   - `DEVLOG-VIVO.md` records implementation details and must stay aligned with `boot_patch.rs`, `KsuCli.kt`, and `Install.kt`.
+   - `docs/README.md`, `docs/zh/README.md`, `docs/vivo.md`, and
+     `docs/zh/vivo.md` must describe the current automatic runtime behavior.
+   - `DEVLOG-VIVO.md` records implementation details and must stay aligned
+     with `userspace/ksuinit/src/lib.rs` and
+     `kernel/hook/init_module_filter.c`.
 
 ## Verification Gates
 
@@ -54,6 +71,7 @@ Replay SakiSU-specific work on top of the newest ReSukiSU mainline in a clean, r
 - `cargo fmt --manifest-path userspace/ksud/Cargo.toml -- --check`
 - `cargo fmt --manifest-path userspace/ksuinit/Cargo.toml -- --check`
 - `cargo check --manifest-path userspace/ksud/Cargo.toml`
+- `cargo check --manifest-path userspace/ksuinit/Cargo.toml`
 - `./gradlew :app:compileDebugKotlin` from `manager` when an Android SDK is available
 - GitHub Actions for the sync branch, then dev/main after merge:
   - Build Manager

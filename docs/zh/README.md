@@ -12,27 +12,19 @@ SakiSU 是基于 [ReSukiSU](https://github.com/ReSukiSU/ReSukiSU) 的下游分�
 
 - 内核级 `su` 与 root 授权管理。
 - 模块系统、App Profile、SuSFS/tracepoint 等上游能力。
-- vivo/iQOO 兼容模式，开关文案为 **“去除vr或适配vivo特性”**。
-- `vendor_boot` 路径只清理 `vr.ko`，不会注入 KernelSU LKM。
-- `init_boot` 或兼容 boot ramdisk 路径继续注入 LKM，并优先使用 `_vivo` KMI/LKM。
+- **vivo/iQOO 全自动兼容**：运行时 vermagic 适配 + 内核级 `vr.ko` 拦截，无需修改 vendor_boot，无需 `_vivo` LKM 变体。
 - CI 构建保留长期签名密钥优先、临时同批次签名兜底的策略。
 
 ## vivo/iQOO 快速理解
 
-开启 vivo 修补后，Manager 统一调用：
+vivo/iQOO 兼容全自动，无需任何开关或特殊操作：
 
-```text
-ksud boot-patch-vivo
-```
-
-后端会按镜像内容自动判断路径：
-
-| 镜像 | 行为 |
+| 机制 | 作用 |
 |---|---|
-| `vendor_boot.img` | 移除 `vr.ko` 并清理 `modules.load`、`modules.dep`、`modules.softdep`、`modules.load.recovery`，不注入 LKM。 |
-| `init_boot.img` 或 boot ramdisk | 正常注入 KernelSU LKM，并优先选择匹配的 `_vivo` KMI。 |
+| 运行时 vermagic 适配（`ksuinit`） | 首次 `init_module` 失败后，读取内核日志提取所需 version magic，修补内存中模块的 `.modinfo` 后重试。单一通用 LKM 适配所有 KMI。 |
+| 内核 `vr.ko` 拦截（`init_module_filter`） | Hook arm64 `init_module`/`finit_module`，对内部名称精确为 `vr` 的模块直接返回成功而不真正加载，阻断 vivo 反 root，无需冷移除 `vendor_boot`。 |
 
-这两个操作互不依赖。只刷 `vendor_boot` 只代表去除 `vr.ko`；只刷 `init_boot` 只代表注入 KernelSU。需要两者都生效时，应分别修补并刷回对应分区。
+两者都在标准 `boot-patch` 流程中生效。用 Manager 修补 `init_boot.img`（选任意标准 KMI），刷入即可。
 
 完整背景、风险说明和教程见 [vivo/iQOO 适配教程](vivo.md)。
 

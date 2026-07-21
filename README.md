@@ -20,10 +20,10 @@ SakiSU 是基于 [ReSukiSU](https://github.com/ReSukiSU/ReSukiSU) 的下游分�
 SakiSU 为 vivo/iQOO 设备提供自动化兼容：
 
 - **运行时 vermagic 适配**：ksuinit 在模块加载失败时自动读取内核日志并修正 vermagic 后重试。
-- **内核 vr.ko 拦截**：通过 arm64 `init_module` syscall hook 精确阻止 `vr` 模块加载。
+- **内核 vr.ko 拦截**：通过 arm64 `init_module`/`finit_module` syscall hook 精确阻止 `vr` 模块加载，无需修改 vendor_boot。
 - **单一标准 LKM**：所有设备使用相同 KernelSU 模块，无需 `_vivo` 变体。
 
-Manager 中的 vivo 开关「去除vr或适配vivo特性」控制兼容逻辑。
+兼容逻辑全自动，无需任何开关：用 Manager 修补 `init_boot.img`（选任意标准 KMI）并刷入即可。
 
 完整背景、风险说明和教程见 [docs/zh/vivo.md](docs/zh/vivo.md)。
 

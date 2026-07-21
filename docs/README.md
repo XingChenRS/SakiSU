@@ -12,27 +12,19 @@ The current sync model is intentionally conservative: start from the latest ReSu
 
 - Kernel-level `su` and root authorization management.
 - Module system, App Profile, and upstream ReSukiSU/SukiSU features.
-- vivo/iQOO compatibility mode with the manager switch text `去除vr或适配vivo特性`.
-- `vendor_boot` vivo path removes `vr.ko` only and skips KernelSU LKM injection.
-- `init_boot` or compatible boot ramdisk path keeps normal LKM injection and prefers `_vivo` KMI/LKM variants.
+- **Automatic vivo/iQOO compatibility**: runtime vermagic adaptation plus kernel-level `vr.ko` blocking — no vendor_boot modification, no `_vivo` LKM variants.
 - CI builds use a long-lived signing keystore when configured, with an ephemeral same-batch fallback for test builds.
 
 ## vivo/iQOO Behavior
 
-When vivo mode is enabled, Manager invokes:
+Vivo/iQOO compatibility is fully automatic and requires no special switch:
 
-```text
-ksud boot-patch-vivo
-```
-
-`ksud` then classifies the selected image from its actual ramdisk content:
-
-| Image | Behavior |
+| Mechanism | What it does |
 |---|---|
-| `vendor_boot.img` | Remove `vr.ko` and clean `modules.load`, `modules.dep`, `modules.softdep`, and `modules.load.recovery`; do not inject KernelSU LKM. |
-| `init_boot.img` or boot ramdisk | Inject KernelSU LKM normally and prefer the matching `_vivo` KMI. |
+| Runtime vermagic fallback (`ksuinit`) | On the first `init_module` failure, reads the kernel log, extracts the required version magic, patches the module's in-memory `.modinfo`, and retries. A single universal LKM works across every KMI. |
+| Kernel `vr.ko` blocking (`init_module_filter`) | Hooks arm64 `init_module`/`finit_module` and returns success for the exact module named `vr` without loading it, so vendor anti-root never activates. No cold removal from `vendor_boot`. |
 
-The two operations are independent. Removing `vr.ko` from `vendor_boot` does not install KernelSU by itself, and patching `init_boot` does not automatically modify `vendor_boot`.
+Both run in the standard `boot-patch` flow. Just patch `init_boot.img` with any standard KMI and flash it.
 
 See [vivo/iQOO compatibility guide](vivo.md) for background, risks, and step-by-step usage.
 
