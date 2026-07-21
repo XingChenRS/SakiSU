@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -33,7 +32,6 @@ import androidx.compose.material.icons.automirrored.filled.Input
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileUpload
-import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -60,7 +58,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -94,7 +91,6 @@ import com.sakisu.sakisu.ui.theme.getCardColors
 import com.sakisu.sakisu.ui.theme.getCardElevation
 import com.sakisu.sakisu.ui.theme.renderBackgroundBlur
 import com.sakisu.sakisu.ui.util.LkmSelection
-import com.sakisu.sakisu.ui.util.classifyBootImage
 import com.sakisu.sakisu.ui.util.getAvailablePartitions
 import com.sakisu.sakisu.ui.util.getCurrentKmi
 import com.sakisu.sakisu.ui.util.getDefaultPartition
@@ -103,7 +99,6 @@ import com.sakisu.sakisu.ui.util.getSupportedKmis
 import com.sakisu.sakisu.ui.util.isAbDevice
 import com.sakisu.sakisu.ui.util.probeRootAvailable
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -132,16 +127,6 @@ fun InstallScreen(
     var showRebootDialog by remember { mutableStateOf(false) }
     var showSlotSelectionDialog by remember { mutableStateOf(false) }
     var tempKernelUri by remember { mutableStateOf<Uri?>(null) }
-    var selectedBootImageKind by remember { mutableStateOf<String?>(null) }
-    val coroutineScope = rememberCoroutineScope()
-    var enableVivoPatch by remember {
-        mutableStateOf(
-            Build.MANUFACTURER.orEmpty().contains("vivo", ignoreCase = true) ||
-                Build.MANUFACTURER.orEmpty().contains("iqoo", ignoreCase = true) ||
-                Build.BRAND.orEmpty().contains("vivo", ignoreCase = true) ||
-                Build.BRAND.orEmpty().contains("iqoo", ignoreCase = true)
-        )
-    }
 
     val kernelVersion = getKernelVersion()
     val isGKI = kernelVersion.isGKI()
@@ -246,7 +231,6 @@ fun InstallScreen(
                         lkm = lkmSelection,
                         ota = isOta,
                         partition = partitionSelection,
-                        vivoPatch = enableVivoPatch,
                     )
                     navigator.push(Route.Flash(flashIt))
                 }
@@ -272,13 +256,7 @@ fun InstallScreen(
 
     val currentKmi = deviceProbe.currentKmi
 
-    val preferredKmi = if (enableVivoPatch) {
-        currentKmi.takeIf { it.isNotBlank() }?.let { base ->
-            if (base.endsWith("_vivo")) base else "${base}_vivo"
-        }
-    } else {
-        currentKmi.takeIf { it.isNotBlank() }
-    }
+    val preferredKmi = currentKmi.takeIf { it.isNotBlank() }
 
     val selectKmiDialog = rememberSelectKmiDialog(preferredKmi = preferredKmi) { kmi ->
         kmi?.let {
@@ -288,13 +266,10 @@ fun InstallScreen(
     }
 
     val continueInstall: () -> Unit = {
-        val selectedPartition = partitionsState.getOrNull(partitionSelectionIndex)
-        val isVivoVendorBootRmvr = enableVivoPatch &&
-            (selectedBootImageKind == "vendor_boot" || selectedPartition == "vendor_boot")
         val needsKmi = isGKI &&
             lkmSelection == LkmSelection.KmiNone &&
             installMethod !is InstallMethod.HorizonKernel &&
-            (if (enableVivoPatch) !isVivoVendorBootRmvr else currentKmi.isBlank())
+            currentKmi.isBlank()
 
         if (needsKmi) {
             selectKmiDialog.show()
@@ -304,18 +279,7 @@ fun InstallScreen(
     }
 
     val onClickNext: () -> Unit = {
-        val method = installMethod
-        if (enableVivoPatch &&
-            method is InstallMethod.SelectFile &&
-            selectedBootImageKind == null
-        ) {
-            coroutineScope.launch {
-                selectedBootImageKind = method.uri?.let { classifyBootImage(it) } ?: "unknown"
-                continueInstall()
-            }
-        } else {
-            continueInstall()
-        }
+        continueInstall()
     }
 
     val installOnlySupportKoFile = stringResource(R.string.install_only_support_ko_file)
@@ -377,7 +341,6 @@ fun InstallScreen(
                 isAbDevice = deviceProbe.isAbDevice,
                 defaultPartitionName = deviceProbe.defaultPartition,
                 onSelected = { method ->
-                    selectedBootImageKind = null
                     if (method is InstallMethod.HorizonKernel && method.uri != null) {
                         if (abDevice) {
                             tempKernelUri = method.uri
@@ -435,37 +398,6 @@ fun InstallScreen(
                                 },
                             )
                         }
-                    }
-                }
-            }
-
-            if (isGKI) {
-                ElevatedCard(
-                    colors = getCardColors(MaterialTheme.colorScheme.surfaceVariant),
-                    elevation = getCardElevation(),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .renderBackgroundBlur(MaterialTheme.colorScheme.surfaceVariant),
-                ) {
-                    SettingsBaseWidget(
-                        title = "vivo修补",
-                        description = "去除vr或适配vivo特性",
-                        icon = Icons.Default.Security,
-                        onClick = {
-                            enableVivoPatch = !enableVivoPatch
-                            selectedBootImageKind = null
-                        },
-                    ) {
-                        Text(
-                            text = if (enableVivoPatch) "ON" else "OFF",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = if (enableVivoPatch) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-                        )
                     }
                 }
             }
@@ -932,16 +864,9 @@ fun rememberSelectKmiDialog(
                 supportedKmi
             } else {
                 val preferred = supportedKmi.firstOrNull { it == preferredKmi }
-                val fallback = if (preferredKmi.endsWith("_vivo")) {
-                    preferredKmi.removeSuffix("_vivo")
-                } else {
-                    preferredKmi
-                }
-                val secondary = supportedKmi.firstOrNull { it == fallback }
                 buildList {
                     preferred?.let { add(it) }
-                    if (secondary != null && secondary != preferred) add(secondary)
-                    addAll(supportedKmi.filter { it != preferred && it != secondary })
+                    addAll(supportedKmi.filter { it != preferred })
                 }
             }
         }

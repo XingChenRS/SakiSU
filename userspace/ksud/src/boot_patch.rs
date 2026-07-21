@@ -376,26 +376,6 @@ fn extract_ramdisk(ramdisk_image: &RamdiskImage) -> Result<(Cpio, Option<usize>)
     }
 }
 
-pub fn classify_boot_image(image: &PathBuf) -> Result<&'static str> {
-    let boot_image_data = map_file(image)?;
-    let boot_image = BootImage::parse(&boot_image_data)?;
-
-    let Some(ramdisk_image) = boot_image.get_blocks().get_ramdisk() else {
-        return Ok("unknown");
-    };
-
-    if ramdisk_image.is_vendor_ramdisk() {
-        return Ok("vendor_boot");
-    }
-
-    let (cpio, _) = extract_ramdisk(ramdisk_image)?;
-    if cpio.entries().keys().any(|p| is_kernel_module_path(p)) {
-        Ok("vendor_boot")
-    } else {
-        Ok("init_boot")
-    }
-}
-
 fn enforce_bootimage_version(boot: &BootImage<'_>) -> Result<()> {
     if let BootImageVersion::Android(ver) = boot.get_header().get_version()
         && ver < 3
@@ -474,134 +454,6 @@ pub struct BootPatchArgs {
     /// Do not load custom rc
     #[arg(long, default_value = "false")]
     no_custom_rc: bool,
-
-    /// Remove vendor ramdisk modules by name and clean modules.* references.
-    #[arg(long = "remove-module", value_name = "NAME.ko", num_args = 0..)]
-    pub remove_module: Vec<String>,
-}
-
-fn normalize_module_name(name: &str) -> String {
-    let trimmed = name.trim().trim_matches('/');
-    let basename = trimmed.rsplit('/').next().unwrap_or(trimmed);
-    basename.to_string()
-}
-
-fn remove_module_from_index(cpio: &mut Cpio, index_path: &str, module_name: &str) -> Result<()> {
-    let Some(entry) = cpio.entry_by_name(index_path) else {
-        return Ok(());
-    };
-
-    let data = entry
-        .data()
-        .ok_or_else(|| anyhow!("Invalid cpio entry for {index_path}"))?
-        .to_vec();
-    let text = String::from_utf8_lossy(&data);
-    let module_stem = module_name.trim_end_matches(".ko");
-    let mut changed = false;
-    let mut kept = Vec::<String>::new();
-
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        let refs_by_path =
-            trimmed.contains(module_name) || trimmed.contains(&format!("/{module_name}"));
-        let refs_by_stem = trimmed.contains(&format!(" {module_stem} "))
-            || trimmed.ends_with(&format!(" {module_stem}"))
-            || trimmed.starts_with(&format!("{module_stem} "))
-            || trimmed.starts_with(&format!("softdep {module_stem} "));
-
-        if refs_by_path || refs_by_stem {
-            changed = true;
-            continue;
-        }
-
-        kept.push(line.to_string());
-    }
-
-    if !changed {
-        return Ok(());
-    }
-
-    println!("- Cleaning reference in {index_path} for {module_name}");
-
-    let mut rebuilt = kept.join("\n");
-    if !rebuilt.is_empty() {
-        rebuilt.push('\n');
-    }
-
-    cpio.rm(index_path, false);
-    cpio.add(
-        index_path,
-        CpioEntry::regular(0o644, Box::new(rebuilt.into_bytes())),
-    )?;
-    Ok(())
-}
-
-fn remove_vendor_modules(cpio: &mut Cpio, remove_module: &[String]) -> Result<()> {
-    if remove_module.is_empty() {
-        return Ok(());
-    }
-
-    let mut module_roots = vec!["lib/modules".to_string()];
-    let prefix = "lib/modules/";
-    for path in cpio.entries().keys() {
-        let Some(rest) = path.strip_prefix(prefix) else {
-            continue;
-        };
-        let head = rest.find('/').map_or(rest, |idx| &rest[..idx]);
-        if head.is_empty() || !head.ends_with("-gki") {
-            continue;
-        }
-        let candidate = format!("{prefix}{head}");
-        if !module_roots.iter().any(|root| root == &candidate) {
-            println!("- Detected vendor module root: {candidate}");
-            module_roots.push(candidate);
-        }
-    }
-
-    let index_files = [
-        "modules.load",
-        "modules.dep",
-        "modules.softdep",
-        "modules.load.recovery",
-    ];
-
-    for raw_name in remove_module {
-        let module_name = normalize_module_name(raw_name);
-        if module_name.is_empty() {
-            continue;
-        }
-
-        for root in &module_roots {
-            let module_path = format!("{root}/{module_name}");
-            if cpio.exists(&module_path) {
-                println!("- Removing vendor module {module_path}");
-                cpio.rm(&module_path, false);
-            }
-
-            for index_file in index_files {
-                let index_path = format!("{root}/{index_file}");
-                remove_module_from_index(cpio, &index_path, &module_name)?;
-            }
-        }
-    }
-
-    Ok(())
-}
-
-pub fn patch_vivo(mut args: BootPatchArgs) -> Result<()> {
-    println!("- Mode: vivo compat (auto-detect init_boot vs vendor_boot)");
-    if !args
-        .remove_module
-        .iter()
-        .any(|name| normalize_module_name(name) == "vr.ko")
-    {
-        args.remove_module.push("vr.ko".to_string());
-    }
-    patch(args)
 }
 
 pub fn patch(args: BootPatchArgs) -> Result<()> {
@@ -618,8 +470,7 @@ pub fn patch(args: BootPatchArgs) -> Result<()> {
             enable_adbd,
             adb_debug_prop,
             cmdline,
-            mut no_install,
-            remove_module,
+            no_install,
             #[cfg(target_os = "android")]
             ota,
             #[cfg(target_os = "android")]
@@ -728,18 +579,6 @@ pub fn patch(args: BootPatchArgs) -> Result<()> {
                 (Cpio::new(), None)
             };
 
-        if !no_install {
-            let looks_like_vendor_boot = vendor_ramdisk_idx.is_some()
-                || cpio
-                    .entries()
-                    .keys()
-                    .any(|path| is_kernel_module_path(path));
-            if looks_like_vendor_boot {
-                println!("- Auto-detected vendor_boot; skipping KernelSU LKM injection");
-                no_install = true;
-            }
-        }
-
         let kernelsu_payload: Option<KernelSuPayload> = if no_install {
             println!("- Skipping KernelSU LKM injection");
             None
@@ -830,8 +669,6 @@ pub fn patch(args: BootPatchArgs) -> Result<()> {
                 cpio.rm("adb_debug.prop", false);
             }
         }
-
-        remove_vendor_modules(&mut cpio, &remove_module)?;
 
         let mut new_cpio = Vec::<u8>::new();
         cpio.dump(&mut new_cpio)?;
@@ -1082,12 +919,4 @@ fn map_file(file: &PathBuf) -> Result<Mmap> {
             .len(file.seek(SeekFrom::End(0))? as usize)
             .map(&file)?)
     }
-}
-
-fn is_kernel_module_path(path: &str) -> bool {
-    path.starts_with("lib/modules/")
-        && Path::new(path)
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("ko"))
 }

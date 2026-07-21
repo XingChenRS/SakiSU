@@ -128,9 +128,6 @@ enum Commands {
     /// Patch boot or init_boot images to apply KernelSU
     BootPatch(BootPatchArgs),
 
-    /// Patch vivo/iQOO images: remove vr.ko from vendor_boot or apply vivo LKM mode.
-    BootPatchVivo(BootPatchArgs),
-
     /// Restore boot or init_boot images patched by KernelSU
     BootRestore(BootRestoreArgs),
 
@@ -186,12 +183,6 @@ enum UmountConfigOp {
 enum BootInfo {
     /// show current kmi version
     CurrentKmi,
-
-    /// classify a boot image as init_boot, vendor_boot, or unknown
-    ClassifyImage {
-        /// boot image path
-        boot: PathBuf,
-    },
 
     /// show supported kmi versions
     SupportedKmis,
@@ -819,18 +810,11 @@ pub fn run() -> Result<()> {
 
         Commands::BootPatch(boot_patch) => crate::boot_patch::patch(boot_patch),
 
-        Commands::BootPatchVivo(boot_patch) => crate::boot_patch::patch_vivo(boot_patch),
-
         Commands::BootInfo { command } => match command {
             BootInfo::CurrentKmi => {
                 let kmi = crate::boot_patch::get_current_kmi()?;
                 println!("{kmi}");
                 // return here to avoid printing the error message
-                return Ok(());
-            }
-            BootInfo::ClassifyImage { boot } => {
-                let kind = crate::boot_patch::classify_boot_image(&boot)?;
-                println!("{kind}");
                 return Ok(());
             }
             BootInfo::SupportedKmis => {
