@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 
 data class UmountManagerUiState(
@@ -115,8 +116,8 @@ class UmountManagerScreenViewModel : ViewModel() {
         }
     }
 
-    fun removePath(entry: UmountPathEntry, snackBarHost: SnackbarHostState?, context: Context?) {
-        viewModelScope.launch(Dispatchers.IO) {
+    suspend fun removePath(entry: UmountPathEntry, snackBarHost: SnackbarHostState?, context: Context?) =
+        withContext(Dispatchers.IO) {
             val success = if (entry.persistent) {
                 removeUmountConfigUmountPath(entry.path)
             } else {
@@ -127,7 +128,7 @@ class UmountManagerScreenViewModel : ViewModel() {
                 context?.let {
                     snackBarHost?.showSnackbar(context.getString(R.string.operation_failed))
                 }
-                return@launch
+                return@withContext
             }
 
             _uiState.update { state ->
@@ -138,14 +139,13 @@ class UmountManagerScreenViewModel : ViewModel() {
                 snackBarHost?.showSnackbar(context.getString(R.string.umount_path_removed))
             }
         }
-    }
 
-    fun addPath(path: String, flags: Int, snackBarHost: SnackbarHostState?, context: Context) {
-        viewModelScope.launch(Dispatchers.IO) {
+    suspend fun addPath(path: String, flags: Int, snackBarHost: SnackbarHostState?, context: Context) =
+        withContext(Dispatchers.IO) {
             val success = addUmountConfigUmountPath(path, flags) && addKernelUmountPath(path, flags)
             if (!success) {
                 snackBarHost?.showSnackbar(context.getString(R.string.operation_failed))
-                return@launch
+                return@withContext
             }
             _uiState.update { state ->
                 state.copy(
@@ -159,5 +159,4 @@ class UmountManagerScreenViewModel : ViewModel() {
 
             snackBarHost?.showSnackbar(context.getString(R.string.umount_path_added))
         }
-    }
 }

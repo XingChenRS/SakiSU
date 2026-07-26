@@ -28,7 +28,6 @@ import com.sakisu.sakisu.ui.util.module.LatestVersionInfo
 import com.sakisu.sakisu.ui.util.rootAvailable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -325,15 +324,12 @@ class HomeViewModel : ViewModel() {
                 loadingJobs.forEach { it.cancel() }
                 loadingJobs.clear()
 
-                val userSettings = async {
-                    applyUserSettings(context)
-                }
+                applyUserSettings(context)
                 val coreJob = loadCoreData(force = refreshUI)
                 val extendedJob = loadExtendedData(context, force = refreshUI)
 
                 coreJob?.join()
                 extendedJob?.join()
-                userSettings.join()
             } finally {
                 _uiState.update {
                     it.copy(

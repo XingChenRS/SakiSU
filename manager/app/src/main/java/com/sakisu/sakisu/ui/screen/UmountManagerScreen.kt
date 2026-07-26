@@ -265,20 +265,22 @@ fun UmountManagerScreen() {
                 onConfirm = { path, flags ->
                     showAddDialog = false
 
-                    uiState.umountPaths.filter { it.path == path }.forEach {
-                        viewModel.removePath(
-                            entry = it,
-                            snackBarHost = null,
-                            context = null,
+                    scope.launch {
+                        uiState.umountPaths.filter { it.path == path }.forEach {
+                            viewModel.removePath(
+                                entry = it,
+                                snackBarHost = null,
+                                context = null,
+                            )
+                        }
+
+                        viewModel.addPath(
+                            path = path,
+                            flags = flags,
+                            snackBarHost = snackBarHost,
+                            context = context
                         )
                     }
-
-                    viewModel.addPath(
-                        path = path,
-                        flags = flags,
-                        snackBarHost = snackBarHost,
-                        context = context
-                    )
                 }
             )
         }
