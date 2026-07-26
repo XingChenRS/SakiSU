@@ -166,7 +166,7 @@ fun clearDynamicManager(): Boolean {
 }
 
 private const val OFFICIAL_SAKISU_SIGNATURE =
-    "size: 0x377, hash: d3469712b6214462764a1d8d3e5cbe1d6819a0b629791b9f4101867821f1df64"
+    "size: 0x310, hash: f5391718452b269336a4cf0077b2fc4f9ae91253f061126a2708d5017134287c"
 
 suspend fun isOfficialSignature(): Boolean = withContext(Dispatchers.IO) {
     val shell = getRootShell()
