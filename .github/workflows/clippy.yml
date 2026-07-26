@@ -1,18 +1,8 @@
 name: Clippy check
 
+# SakiSU wind-down: main is frozen; no auto-run on push/PR. Manual runs only.
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/clippy.yml'
-      - 'userspace/**'
-  pull_request:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/clippy.yml'
-      - 'userspace/**'
+  workflow_dispatch:
 
 env:
   RUSTFLAGS: '-Dwarnings'

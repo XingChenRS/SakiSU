@@ -1,8 +1,8 @@
 name: Check Line Endings
 
+# SakiSU wind-down: main is frozen; no auto-run on push/PR. Manual runs only.
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   check-crlf:

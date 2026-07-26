@@ -24,27 +24,14 @@ jobs:
           pattern: "Manager-*"
           merge-multiple: true
 
-      - name: Rename ksud
-        run: |
-          mkdir -p ksud
-          for dir in ./ksud-*; do
-              if [ -d "$dir" ]; then
-                 echo "----- Rename $dir -----"
-                 ksud_platform_name=$(basename "$dir")
-                 find "$dir" -type f -name "ksud" -path "*/release/*" | while read -r ksud_file; do
-                   if [ -f "$ksud_file" ]; then
-                     mv "$ksud_file" "ksud/$ksud_platform_name"
-                   fi
-                 done
-              fi
-          done
-
       - name: Display structure of downloaded files
         run: ls -R
 
+      # SakiSU wind-down: we no longer publish the standalone ksud CLI as a
+      # release asset. ksud is still built and embedded inside the Manager APK;
+      # only the Manager APK is published, to avoid implying a CLI install path.
       - name: release
         uses: softprops/action-gh-release@v3
         with:
           files: |
             manager/*.apk
-            ksud/ksud-*

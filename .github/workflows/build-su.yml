@@ -1,11 +1,8 @@
 name: Build SU
+# SakiSU wind-down: automatic builds on push (including `main`) are disabled;
+# there will be no further iterations. Manual runs only.
 on:
-  push:
-    branches: [ "main", "dev", "ci", "sync-upstream", "sync/**" ]
-    paths:
-      - '.github/workflows/build-su.yml'
-      - 'userspace/su/**'
-      - 'scripts/ksubot.py'
+  workflow_dispatch:
 jobs:
   build-su:
     name: Build userspace su

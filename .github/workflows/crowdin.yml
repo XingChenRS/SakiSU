@@ -1,12 +1,9 @@
 name: Crowdin Action
 
+# SakiSU wind-down: main is frozen and there are no further iterations, so we
+# no longer auto-sync strings to Crowdin on push. Manual runs only.
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'manager/app/src/main/res/values/strings.xml'
-      - 'manager/app/src/main/res/values-*/strings.xml'
-      - '.github/workflows/crowdin.yml'
+  workflow_dispatch:
 
 jobs:
   synchronize-with-crowdin:

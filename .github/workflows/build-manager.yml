@@ -1,17 +1,10 @@
 name: Build Manager
 
+# SakiSU wind-down: automatic builds on push (including `main`) are disabled;
+# there will be no further iterations. This workflow now runs only when invoked
+# manually (workflow_dispatch) or by the Release workflow (workflow_call).
 on:
-  push:
-    branches: [ "main", "dev", "ci", "sync-upstream", "sync/**" ]
-    paths:
-      - '.github/workflows/build-manager.yml'
-      - '.github/workflows/build-lkm.yml'
-      - '.github/workflows/ddk-lkm.yml'
-      - '.github/workflows/ksud.yml'
-      - 'manager/**'
-      - 'kernel/**'
-      - 'userspace/**'
-      - 'scripts/ksubot.py'
+  workflow_dispatch:
   workflow_call:
 
 jobs:

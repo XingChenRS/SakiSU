@@ -1,18 +1,8 @@
 name: ShellCheck
 
+# SakiSU wind-down: main is frozen; no auto-run on push/PR. Manual runs only.
 on:
-  push:
-    branches:
-      - 'main'
-    paths:
-      - '.github/workflows/shellcheck.yml'
-      - '**/*.sh'
-  pull_request:
-    branches:
-      - 'main'
-    paths:
-      - '.github/workflows/shellcheck.yml'
-      - '**/*.sh'
+  workflow_dispatch:
 
 jobs:
   shellcheck:

@@ -1,18 +1,8 @@
 name: Rustfmt check
 
+# SakiSU wind-down: main is frozen; no auto-run on push/PR. Manual runs only.
 on:
-  push:
-    branches:
-      - 'main'
-    paths:
-      - '.github/workflows/rustfmt.yml'
-      - 'userspace/**'
-  pull_request:
-    branches:
-      - 'main'
-    paths:
-      - '.github/workflows/rustfmt.yml'
-      - 'userspace/**'
+  workflow_dispatch:
 
 permissions:
   checks: write
