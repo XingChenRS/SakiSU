@@ -1,6 +1,11 @@
 # Upstream Baseline
 
-SakiSU is a downstream fork of ReSukiSU. This file locks the upstream baseline used by the current sync branch.
+> **Archived on 2026-07-26.** SakiSU is frozen and no longer follows
+> ReSukiSU. The values below document the final historical sync baseline; do
+> not refresh them as an active maintenance process.
+
+SakiSU is a downstream fork of ReSukiSU. This file records the upstream
+baseline used by its historical sync branch.
 
 ## Remotes
 
@@ -21,15 +26,15 @@ SakiSU is a downstream fork of ReSukiSU. This file locks the upstream baseline u
 | Commits ahead of baseline | 10 |
 | Local baseline tag | `sakisu-sync-baseline-20260721` |
 
-## How to refresh
+## Archive policy
 
-1. Fetch upstream: `git fetch origin`
-2. Create a new sync branch from the new `origin/main`
-3. Replay SakiSU-specific commits in the order described by [`SAKISU-UPSTREAM-SYNC.md`](SAKISU-UPSTREAM-SYNC.md)
-4. Update this file with the new baseline commit and sync branch name
+The SakiSU fork is no longer refreshed. The only remaining upstream-bound work
+is the self-contained `vr.ko` filter described in
+[`VR-FILTER-UPSTREAM-PR.md`](VR-FILTER-UPSTREAM-PR.md).
 
 ## Related docs
 
-- [`SAKISU-UPSTREAM-SYNC.md`](SAKISU-UPSTREAM-SYNC.md) — replay order and verification gates
+- [`SAKISU-UPSTREAM-SYNC.md`](SAKISU-UPSTREAM-SYNC.md) — archived replay order and verification gates
+- [`VR-FILTER-UPSTREAM-PR.md`](VR-FILTER-UPSTREAM-PR.md) — prepared upstream PR description
 - [`docs/sakisu/PROPOSAL.md`](docs/sakisu/PROPOSAL.md) — fork-and-inject strategy
 - [`docs/sakisu/VENDOR-ADAPTATIONS.md`](docs/sakisu/VENDOR-ADAPTATIONS.md) — vendor-specific patches

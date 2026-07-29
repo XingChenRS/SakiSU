@@ -6,14 +6,18 @@
 
 SakiSU is a downstream fork based on [ReSukiSU](https://github.com/ReSukiSU/ReSukiSU). It keeps the KernelSU/SukiSU style root manager, module system, App Profile, and related upstream work, while adding SakiSU-specific support for vivo/iQOO devices.
 
-The current sync model is intentionally conservative: start from the latest ReSukiSU `main`, then replay SakiSU changes by topic.
+**SakiSU stopped active development on 2026-07-26.** The final release is
+`v4.2.0-sakisu.1`. The repository no longer follows upstream or starts builds
+from ordinary `main` pushes. The runtime vermagic fallback now exists
+upstream, and the `vr.ko` filter is being handed back as a focused upstream
+patch. See the [wind-down handoff](../HANDOFF.md).
 
 ## Highlights
 
 - Kernel-level `su` and root authorization management.
 - Module system, App Profile, and upstream ReSukiSU/SukiSU features.
 - **Automatic vivo/iQOO compatibility**: runtime vermagic adaptation plus kernel-level `vr.ko` blocking — no vendor_boot modification, no `_vivo` LKM variants.
-- CI builds use a long-lived signing keystore when configured, with an ephemeral same-batch fallback for test builds.
+- Build workflows remain available for deliberate manual validation but no longer run automatically on branch pushes.
 
 ## vivo/iQOO Behavior
 
@@ -33,7 +37,7 @@ See [vivo/iQOO compatibility guide](vivo.md) for background, risks, and step-by-
 - [Chinese documentation](zh/README.md)
 - [vivo/iQOO compatibility guide](vivo.md)
 - [vivo implementation notes](../DEVLOG-VIVO.md)
-- [Upstream sync notes](../SAKISU-UPSTREAM-SYNC.md)
+- [Archived upstream sync notes](../SAKISU-UPSTREAM-SYNC.md)
 - [Upstream baseline lock](../UPSTREAM.md)
 - [SakiSU vision / principles / proposal](sakisu/README.md)
 

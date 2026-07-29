@@ -1,6 +1,11 @@
 # SakiSU Upstream Sync Notes
 
-This branch is rebuilt from the latest ReSukiSU `origin/main`.
+> **Historical record only.** SakiSU stopped following upstream on
+> 2026-07-26. This document is retained to explain the old replay order; it is
+> not an active sync plan and no workflow consumes it.
+
+This historical branch was rebuilt from the ReSukiSU `origin/main` tip
+available at the time.
 
 Target branch:
 
@@ -8,9 +13,10 @@ Target branch:
 sync/resukisu-main-20260705
 ```
 
-## Goal
+## Historical Goal
 
-Replay SakiSU-specific work on top of the newest ReSukiSU mainline in a clean, reviewable order. Do not hard-merge the old SakiSU branch history.
+Replay SakiSU-specific work on top of ReSukiSU mainline in a clean,
+reviewable order without hard-merging the old SakiSU branch history.
 
 ## Replay Order
 
@@ -46,8 +52,9 @@ Replay SakiSU-specific work on top of the newest ReSukiSU mainline in a clean, r
      `base.apk.idsig`, or sibling artifacts as manager APKs.
 
 4. CI behavior
-   - Build workflows are push-triggered for release/test branches; `sync/**`
-     is included so this branch can run Actions before dev/main.
+   - The final repository state disables ordinary push, pull-request, and
+     scheduled triggers. Validation is manual or invoked internally with
+     `workflow_call`.
    - Long-lived keystore secrets are preferred when present.
    - Missing keystore secrets fall back to a self-consistent ephemeral key
      (allowed on `dev` and test branches; only `main` enforces production).
@@ -73,7 +80,7 @@ Replay SakiSU-specific work on top of the newest ReSukiSU mainline in a clean, r
 - `cargo check --manifest-path userspace/ksud/Cargo.toml`
 - `cargo check --manifest-path userspace/ksuinit/Cargo.toml`
 - `./gradlew :app:compileDebugKotlin` from `manager` when an Android SDK is available
-- GitHub Actions for the sync branch, then dev/main after merge:
+- Historical GitHub Actions verification list (now manually dispatched only):
   - Build Manager
   - Build SU
   - Clippy check

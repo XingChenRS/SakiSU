@@ -6,14 +6,17 @@
 
 SakiSU 是基于 [ReSukiSU](https://github.com/ReSukiSU/ReSukiSU) 的下游分支，保留 KernelSU/SukiSU 系 root 管理、模块系统、App Profile 等上游能力，并补充 vivo/iQOO 设备上的内核级 root 适配。
 
-当前维护方式是：以 ReSukiSU 最新 `main` 为底，按主题重放 SakiSU 自己的改动。测试先进入 `dev` 或同步分支，稳定后再合入 `main`。
+**SakiSU 已于 2026-07-26 停止迭代。** 最终 Release 为
+`v4.2.0-sakisu.1`；仓库不再跟进上游，普通 `main` 推送也不再自动触发构建。
+运行时 vermagic fallback 已由上游实现，`vr.ko` 拦截则以独立补丁交还上游。
+详见[收手与上游 PR 交接](../../HANDOFF.md)。
 
 ## 重点功能
 
 - 内核级 `su` 与 root 授权管理。
 - 模块系统、App Profile、SuSFS/tracepoint 等上游能力。
 - **vivo/iQOO 全自动兼容**：运行时 vermagic 适配 + 内核级 `vr.ko` 拦截，无需修改 vendor_boot，无需 `_vivo` LKM 变体。
-- CI 构建保留长期签名密钥优先、临时同批次签名兜底的策略。
+- 构建工作流只保留用于必要的手动验证，不再随分支推送自动运行。
 
 ## vivo/iQOO 快速理解
 
@@ -33,7 +36,7 @@ vivo/iQOO 兼容全自动，无需任何开关或特殊操作：
 - [vivo/iQOO 适配教程](vivo.md)
 - [英文文档](../README.md)
 - [vivo 实现记录](../../DEVLOG-VIVO.md)
-- [上游同步注意事项](../../SAKISU-UPSTREAM-SYNC.md)
+- [已归档的上游同步说明](../../SAKISU-UPSTREAM-SYNC.md)
 
 ## 鸣谢
 
