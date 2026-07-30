@@ -16,7 +16,7 @@
 | Android 包名 | `com.sakisu.sakisu` |
 | 下游仓库 | `XingChenRS/SakiSU` |
 | 上游仓库 | `ReSukiSU/ReSukiSU`（default 分支 `main`，只打 tag、不发 Release） |
-| 历史上游基线 | 见 [`UPSTREAM.md`](UPSTREAM.md)（仅存档，不再刷新） |
+| 历史上游基线 | 见 [`docs/archive/UPSTREAM-BASELINE.md`](docs/archive/UPSTREAM-BASELINE.md)（仅存档，不再刷新） |
 | 主题 | vivo / iQOO GKI 适配（vermagic、`vr.ko` 拦截） |
 
 工作区（`Desktop\sakisu\`）不是 git monorepo，真正的仓库在 `ReSukiSU/` 子目录。目录职责见根 [`README.md`](../README.md)。
@@ -27,19 +27,21 @@
 
 | 分支 | 最终角色 | 处理方式 |
 |---|---|---|
-| `main` | SakiSU 最终存档主线 | 收手提交落定后冻结 |
+| `main` | SakiSU 最终存档主线，也是下游远端唯一分支 | 收手提交落定后冻结 |
 | `pr/init-module-vr-filter` | 面向 ReSukiSU 的纯 `vr.ko` 补丁 | 由维护者推送 fork 并开上游 PR |
-| `dev`、`sync/**` | 历史开发/同步分支 | 不再合入、不再自动构建；确认无需保留后再人工删除 |
 
 最终用户版本锚点为 tag `v4.2.0-sakisu.1`。历史同步锚点
-`sakisu-sync-baseline-20260721` 只用于追溯。
+`sakisu-sync-baseline-20260721` 只用于追溯。历史 `dev` / `sync/**` 分支已从
+本地和下游远端删除；删除前的引用保存在工作区 `_archives` 内的 Git bundle 中，
+不再作为 GitHub 上可见的活跃分支。
 
 ---
 
 ## 3. SakiSU 最终独有改动（存档）
 
-以下是 SakiSU 相对当时上游的主要增量。旧的重放顺序仍保存在
-[`SAKISU-UPSTREAM-SYNC.md`](SAKISU-UPSTREAM-SYNC.md)，但不再作为活跃维护流程。
+以下是 SakiSU 相对当时上游的主要增量。旧的重放顺序仅存档于
+[`docs/archive/SAKISU-UPSTREAM-SYNC.md`](docs/archive/SAKISU-UPSTREAM-SYNC.md)，
+不再作为活跃维护流程。
 
 1. **品牌 / 包名**：`com.sakisu.sakisu`；`settings.gradle.kts` 的 `rootProject.name`、`app/build.gradle.kts` 的 `namespace` / `archivesName`；README/docs。上游署名保留为致谢。
 2. **vivo runtime 适配（全自动，运行时方案）**
@@ -66,7 +68,9 @@
 收手后仓库的状态：
 
 - `main` 已冻结，**推送不再触发任何 CI**（build / lint / codeql / crowdin 都改为仅手动 `workflow_dispatch`；`release` 仅保留 tag 触发用于记录）。见第 5 节。
-- 保留最后一轮 **v4.2.0-sakisu.1** 的 Release；不再发布独立 ksud CLI（避免误导用户以为有 CLI 安装路径，ksud 仍内嵌在 Manager APK 里）。
+- 最后一轮 **v4.2.0-sakisu.1** Release 按决定原样保留，包括当时已经上传的
+  历史资产；之后的 Release workflow 只发布 Manager APK，不再发布独立 ksud
+  CLI。ksud 仍作为 Manager 的内部组件构建和打包。
 - 不再计划继续同步。若未来明确决定恢复维护，应新建分支重新评估，而不是恢复旧
   自动化。
 
@@ -81,8 +85,9 @@
   `KEYSTORE_PASSWORD`、`KEY_ALIAS`、`KEY_PASSWORD`，且证书必须匹配
   `kernel/manager/manager_sign.h` 里的 `EXPECTED_SIZE_SAKISU` /
   `EXPECTED_HASH_SAKISU`。
-- `ksud.yml` / `ksuinit.yml` 是 Manager APK 构建所需的内部可复用工作流，不代表
-  对外提供独立 CLI。`release.yml` 只发布 Manager APK。
+- `ksud.yml` / `ksuinit.yml` 是 Manager APK 构建所需的内部可复用工作流，
+  workflow 和 artifact 均以 `Manager-internal` 标识，不代表对外提供独立 CLI。
+  已删除不再使用的独立 `build-su.yml`。
 
 ---
 
@@ -103,8 +108,8 @@
 
 | 用途 | 路径 |
 |---|---|
-| 历史上游基线 | `UPSTREAM.md` |
-| 历史重放顺序 & 验证门 | `SAKISU-UPSTREAM-SYNC.md` |
+| 历史上游基线 | `docs/archive/UPSTREAM-BASELINE.md` |
+| 历史重放顺序 & 验证门 | `docs/archive/SAKISU-UPSTREAM-SYNC.md` |
 | 上游 VR PR 文案 | `VR-FILTER-UPSTREAM-PR.md` |
 | vivo 内核拦截 | `kernel/hook/init_module_filter.c` |
 | vivo vermagic fallback | `userspace/ksuinit/src/lib.rs` |

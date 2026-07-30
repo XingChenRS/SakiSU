@@ -16,8 +16,8 @@ SakiSU 已于 2026-07-26 停止迭代，本目录仅作为历史设计记录，�
 
 ## 相关实现文档
 
-- [Upstream baseline](../../UPSTREAM.md)
-- [Archived upstream sync notes](../../SAKISU-UPSTREAM-SYNC.md)
+- [Archived upstream baseline](../archive/UPSTREAM-BASELINE.md)
+- [Archived upstream sync notes](../archive/SAKISU-UPSTREAM-SYNC.md)
 - [vivo 实现笔记](../../DEVLOG-VIVO.md)
 - [用户教程（中文）](../zh/vivo.md)
 

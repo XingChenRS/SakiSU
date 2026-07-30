@@ -15,8 +15,9 @@ SakiSU 是基于 [ReSukiSU](https://github.com/ReSukiSU/ReSukiSU) 的下游分�
 - 运行时 vermagic fallback 已由 ReSukiSU 上游原生实现。
 - `vr.ko` 加载拦截已整理为不含 SakiSU 品牌改动的独立上游补丁，待维护者提交给
   ReSukiSU。
-- GitHub Release 只保留 Manager APK；不再单独发布 ksud CLI，避免造成存在独立
-  CLI 安装路径的误解。ksud 仍作为 Manager 的内部组件构建和打包。
+- 既有 `v4.2.0-sakisu.1` Release 按收手决定原样保留；后续 Release workflow
+  只发布 Manager APK，不再单独发布 ksud CLI。ksud 仍作为 Manager 的内部组件
+  构建和打包。
 
 收手背景、最终分支状态和上游 PR 交接见 [HANDOFF.md](HANDOFF.md)。
 

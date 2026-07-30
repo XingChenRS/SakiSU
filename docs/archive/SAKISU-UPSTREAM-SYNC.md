@@ -104,4 +104,5 @@ Release branches (`main`, `dev`) require repository secrets:
 
 The signing certificate **must** match `EXPECTED_SIZE_SAKISU` / `EXPECTED_HASH_SAKISU` in `kernel/manager/manager_sign.h`. Otherwise CI fails and must not ship `IS_PR_BUILD` or bake `EXPECTED_PR_BUILD_*` into LKM (that is what shows the home-page “PR debug build” warning).
 
-`sync/**` may still use ephemeral signing for try builds; those artifacts will show the PR debug warning until production secrets are configured.
+Historical `sync/**` builds could use ephemeral signing for try builds; those
+artifacts displayed the PR debug warning until production secrets were configured.

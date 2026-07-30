@@ -36,7 +36,7 @@ vivo/iQOO 兼容全自动，无需任何开关或特殊操作：
 - [vivo/iQOO 适配教程](vivo.md)
 - [英文文档](../README.md)
 - [vivo 实现记录](../../DEVLOG-VIVO.md)
-- [已归档的上游同步说明](../../SAKISU-UPSTREAM-SYNC.md)
+- [已归档的上游同步说明](../archive/SAKISU-UPSTREAM-SYNC.md)
 
 ## 鸣谢
 

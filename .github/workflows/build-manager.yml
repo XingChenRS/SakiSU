@@ -114,7 +114,7 @@ jobs:
             echo "is_production=true" >> $GITHUB_OUTPUT
           else
             if [ "$REQUIRE_PRODUCTION" = "true" ]; then
-              echo "::error::Production branches (main/dev) require the signing certificate to match EXPECTED_SIZE_SAKISU / EXPECTED_HASH_SAKISU. Update repository KEYSTORE secrets or manager_sign.h."
+              echo "::error::The production branch (main) requires the signing certificate to match EXPECTED_SIZE_SAKISU / EXPECTED_HASH_SAKISU. Update repository KEYSTORE secrets or manager_sign.h."
               exit 1
             fi
             echo "::warning::Non-official signing certificate; marking as PR/debug build."
@@ -308,25 +308,25 @@ jobs:
             name: ${{ steps.determine.outputs.title }}-gradle-${{ matrix.build_type }}
             path: artifacts/${{ steps.determine.outputs.title }}-gradle-${{ matrix.build_type }}
       
-      - name: Download arm64 ksud
+      - name: Download Manager-internal arm64 ksud
         uses: actions/download-artifact@v8
         with:
-          name: ksud-aarch64-linux-android
-          path: artifacts/ksud-aarch64-linux-android
+          name: manager-internal-ksud-aarch64-linux-android
+          path: artifacts/manager-internal-ksud-aarch64-linux-android
 
-      - name: Download x86_64 ksud
+      - name: Download Manager-internal x86_64 ksud
         uses: actions/download-artifact@v8
         with:
-          name: ksud-x86_64-linux-android
-          path: artifacts/ksud-x86_64-linux-android
+          name: manager-internal-ksud-x86_64-linux-android
+          path: artifacts/manager-internal-ksud-x86_64-linux-android
 
-      - name: Download arm ksud
+      - name: Download Manager-internal arm ksud
         uses: actions/download-artifact@v8
         with:
-          name: ksud-armv7-linux-androideabi
-          path: artifacts/ksud-armv7-linux-androideabi
+          name: manager-internal-ksud-armv7-linux-androideabi
+          path: artifacts/manager-internal-ksud-armv7-linux-androideabi
 
-      - name: Place manager apk and ksud artifacts
+      - name: Embed Manager-internal ksud artifacts
         run: |
           mkdir -p manager/app/build/outputs/apk/${{ matrix.build_type }}
           APKS=$(find artifacts/${{ steps.determine.outputs.title }}-gradle-${{ matrix.build_type }} -type f -name "*.apk")
@@ -337,9 +337,9 @@ jobs:
           mkdir -p target/aarch64-linux-android/release
           mkdir -p target/armv7-linux-androideabi/release
           mkdir -p target/x86_64-linux-android/release
-          ARM64_KSUD=$(find artifacts/ksud-aarch64-linux-android -type f -name ksud | head -n 1)
-          ARMV7_KSUD=$(find artifacts/ksud-armv7-linux-androideabi -type f -name ksud | head -n 1)
-          X86_64_KSUD=$(find artifacts/ksud-x86_64-linux-android -type f -name ksud | head -n 1)
+          ARM64_KSUD=$(find artifacts/manager-internal-ksud-aarch64-linux-android -type f -name ksud | head -n 1)
+          ARMV7_KSUD=$(find artifacts/manager-internal-ksud-armv7-linux-androideabi -type f -name ksud | head -n 1)
+          X86_64_KSUD=$(find artifacts/manager-internal-ksud-x86_64-linux-android -type f -name ksud | head -n 1)
           test -n "$ARM64_KSUD"
           test -n "$ARMV7_KSUD"
           test -n "$X86_64_KSUD"
@@ -348,7 +348,7 @@ jobs:
           cp -f "$X86_64_KSUD" target/x86_64-linux-android/release/ksud
 
       - name: Prepare signing inputs
-        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/ci' || github.ref == 'refs/heads/sync-upstream' || startsWith(github.ref, 'refs/heads/sync/') || github.ref_type == 'tag' }}
+        if: ${{ github.ref == 'refs/heads/main' || github.ref_type == 'tag' }}
         env:
           PR_KEYSTORE: ${{ needs.generate-key.outputs.keystore }}
           PR_KEYSTORE_PASSWORD: ${{ needs.generate-key.outputs.keystore_password }}
@@ -373,7 +373,7 @@ jobs:
           echo "SIGN_KEYSTORE_FILE=sign-key.jks" >> $GITHUB_ENV
 
       - name: Repack and resign
-        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/ci' || github.ref == 'refs/heads/sync-upstream' || startsWith(github.ref, 'refs/heads/sync/') || github.ref_type == 'tag' }}
+        if: ${{ github.ref == 'refs/heads/main' || github.ref_type == 'tag' }}
         run: |
           python3 repack_apk_multi.py repack \
             -b ${{ matrix.build_type }} \
@@ -393,7 +393,7 @@ jobs:
           name: ${{ steps.determine.outputs.title }}-gradle-${{ matrix.build_type }}
         
       - name: Upload build artifact
-        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/ci' || github.ref == 'refs/heads/sync-upstream' || startsWith(github.ref, 'refs/heads/sync/') || github.ref_type == 'tag' }}
+        if: ${{ github.ref == 'refs/heads/main' || github.ref_type == 'tag' }}
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.determine.outputs.title }}-${{ matrix.build_type }}

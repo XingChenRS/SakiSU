@@ -69,7 +69,8 @@
 
 - [x] 维护者裁定 v0 提案，决策合并入本 v1
 - [x] 拉取 ReSukiSU 源码作基线（维护者负责）— 即仓库根目录
-- [x] 锁定 ReSukiSU 上游基线 commit，写入 `UPSTREAM.md`（基线 `e8f607a2`，见仓库根）
+- [x] 锁定 ReSukiSU 上游基线 commit，存档于
+  `docs/archive/UPSTREAM-BASELINE.md`（基线 `e8f607a2`）
 - [x] 把本目录 6 份文档注入新仓（`docs/sakisu/`，2026-07-17）
 - [ ] 从清空前的 git 历史恢复 `platform_probe.rs` 作为继承项种子（旧路径：`userspace/ksud/src/android/sakisu/platform_probe.rs`）
 - [ ] 复刻 `.github/copilot-instructions.md`（清空前已建好的协作规则）

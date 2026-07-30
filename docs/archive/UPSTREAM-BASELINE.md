@@ -30,11 +30,11 @@ baseline used by its historical sync branch.
 
 The SakiSU fork is no longer refreshed. The only remaining upstream-bound work
 is the self-contained `vr.ko` filter described in
-[`VR-FILTER-UPSTREAM-PR.md`](VR-FILTER-UPSTREAM-PR.md).
+[`VR-FILTER-UPSTREAM-PR.md`](../../VR-FILTER-UPSTREAM-PR.md).
 
 ## Related docs
 
 - [`SAKISU-UPSTREAM-SYNC.md`](SAKISU-UPSTREAM-SYNC.md) — archived replay order and verification gates
-- [`VR-FILTER-UPSTREAM-PR.md`](VR-FILTER-UPSTREAM-PR.md) — prepared upstream PR description
-- [`docs/sakisu/PROPOSAL.md`](docs/sakisu/PROPOSAL.md) — fork-and-inject strategy
-- [`docs/sakisu/VENDOR-ADAPTATIONS.md`](docs/sakisu/VENDOR-ADAPTATIONS.md) — vendor-specific patches
+- [`VR-FILTER-UPSTREAM-PR.md`](../../VR-FILTER-UPSTREAM-PR.md) — prepared upstream PR description
+- [`PROPOSAL.md`](../sakisu/PROPOSAL.md) — fork-and-inject strategy
+- [`VENDOR-ADAPTATIONS.md`](../sakisu/VENDOR-ADAPTATIONS.md) — vendor-specific patches

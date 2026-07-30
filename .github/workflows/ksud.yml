@@ -1,4 +1,4 @@
-name: Build ksud
+name: Internal - Build ksud for Manager
 on:
   workflow_call:
     inputs:
@@ -39,10 +39,10 @@ jobs:
       run: |
         cp android*-lkm/*_kernelsu.ko ./userspace/ksud/bin/aarch64/
     
-    - name: Prepare ksuinit
+    - name: Prepare Manager-internal ksuinit
       if: ${{ inputs.pack_ksuinit }}
       run: |
-        mv ksuinit/*/release/ksuinit ./userspace/ksud/bin/aarch64/
+        mv manager-internal-ksuinit/*/release/ksuinit ./userspace/ksud/bin/aarch64/
      
     - name: Setup Rust toolchain
       uses: dtolnay/rust-toolchain@stable
@@ -61,13 +61,13 @@ jobs:
     - name: Setup cargo-ndk
       run: cargo install cargo-ndk --locked
         
-    - name: Build ksud
+    - name: Build Manager-internal ksud
       run: |
         cd userspace/ksud/
         cargo ndk b -t ${{ inputs.target }} -r -Z build-std=std,core,panic_abort -Z build-std-features="optimize_for_size" -Z trim-paths
 
-    - name: Upload ksud artifact
+    - name: Upload Manager-internal ksud artifact
       uses: actions/upload-artifact@v7
       with:
-        name: ksud-${{ inputs.target }}
+        name: manager-internal-ksud-${{ inputs.target }}
         path: userspace/ksud/target/**/release/ksud*
