@@ -71,12 +71,17 @@ internal suspend fun prepareWebView(
         webUIState.rootShell = shell
 
         withContext(Dispatchers.Main) {
+            val taskLabel = activity.getString(
+                R.string.webui_task_title,
+                activity.getString(R.string.app_name),
+                moduleInfo.name,
+            )
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
                 @Suppress("DEPRECATION")
-                activity.setTaskDescription(ActivityManager.TaskDescription("KernelSU - ${moduleInfo.name}"))
+                activity.setTaskDescription(ActivityManager.TaskDescription(taskLabel))
             } else {
                 val taskDescription = ActivityManager.TaskDescription.Builder()
-                    .setLabel("KernelSU - ${moduleInfo.name}")
+                    .setLabel(taskLabel)
                     .build()
                 activity.setTaskDescription(taskDescription)
             }

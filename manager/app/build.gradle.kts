@@ -19,6 +19,39 @@ val androidTargetCompatibility: JavaVersion by rootProject.extra
 val managerVersionCode: Int by rootProject.extra
 val managerVersionName: String by rootProject.extra
 
+val managerSignHeader = providers.fileContents(
+    layout.projectDirectory.file("../../kernel/manager/manager_sign.h")
+).asText.get()
+
+fun readSingleManagerSignMacro(pattern: Regex, macroName: String): String {
+    val matches = pattern.findAll(managerSignHeader).toList()
+    check(matches.size == 1) {
+        "Expected exactly one $macroName definition in kernel/manager/manager_sign.h, found ${matches.size}"
+    }
+    return matches.single().groupValues[1]
+}
+
+fun parseSignatureSize(value: String, sourceName: String): Int {
+    val parsed = if (value.startsWith("0x", ignoreCase = true)) {
+        value.substring(2).toIntOrNull(16)
+    } else {
+        value.toIntOrNull()
+    }
+    return requireNotNull(parsed) { "Invalid signature size for $sourceName: $value" }
+}
+
+val officialSakiSuSignatureSize = parseSignatureSize(
+    readSingleManagerSignMacro(
+        Regex("""(?m)^\s*#define\s+EXPECTED_SIZE_SAKISU\s+(0[xX][0-9A-Fa-f]+|[0-9]+)\s*$"""),
+        "EXPECTED_SIZE_SAKISU",
+    ),
+    "EXPECTED_SIZE_SAKISU",
+)
+val officialSakiSuSignatureHash = readSingleManagerSignMacro(
+    Regex("""(?m)^\s*#define\s+EXPECTED_HASH_SAKISU\s+"([0-9A-Fa-f]{64})"\s*$"""),
+    "EXPECTED_HASH_SAKISU",
+).lowercase()
+
 apksign {
     storeFileProperty = "KEYSTORE_FILE"
     storePasswordProperty = "KEYSTORE_PASSWORD"
@@ -123,11 +156,48 @@ android {
         versionCode = managerVersionCode
         versionName = managerVersionName
 
-        val isPrBuild = project.findProperty("IS_PR_BUILD")?.toString()?.toBoolean() ?: false
+        val isPrBuildValue = providers.gradleProperty("IS_PR_BUILD").orNull
+        val isPrBuild = isPrBuildValue?.toBooleanStrictOrNull() ?: false
+        check(isPrBuildValue == null || isPrBuildValue.toBooleanStrictOrNull() != null) {
+            "IS_PR_BUILD must be either true or false"
+        }
         buildConfigField("boolean", "IS_PR_BUILD", isPrBuild.toString())
 
-        val expectedPrBuildSize = System.getenv("KSU_EXPECTED_PR_BUILD_SIZE").orEmpty()
-        val expectedPrBuildHash = System.getenv("KSU_EXPECTED_PR_BUILD_HASH").orEmpty()
+        val expectedPrBuildSize = providers.environmentVariable("KSU_EXPECTED_PR_BUILD_SIZE")
+            .orNull
+            .orEmpty()
+        val expectedPrBuildHash = providers.environmentVariable("KSU_EXPECTED_PR_BUILD_HASH")
+            .orNull
+            .orEmpty()
+            .lowercase()
+        check(expectedPrBuildSize.isBlank() == expectedPrBuildHash.isBlank()) {
+            "KSU_EXPECTED_PR_BUILD_SIZE and KSU_EXPECTED_PR_BUILD_HASH must be provided together"
+        }
+        if (isPrBuild) {
+            check(expectedPrBuildSize.matches(Regex("""0[xX][0-9A-Fa-f]+|[0-9]+"""))) {
+                "IS_PR_BUILD requires a valid KSU_EXPECTED_PR_BUILD_SIZE"
+            }
+            check(parseSignatureSize(expectedPrBuildSize, "KSU_EXPECTED_PR_BUILD_SIZE") > 0) {
+                "KSU_EXPECTED_PR_BUILD_SIZE must be positive and fit in an Int"
+            }
+            check(expectedPrBuildHash.matches(Regex("""[0-9a-f]{64}"""))) {
+                "IS_PR_BUILD requires a valid KSU_EXPECTED_PR_BUILD_HASH"
+            }
+        } else {
+            check(expectedPrBuildSize.isBlank() && expectedPrBuildHash.isBlank()) {
+                "PR signature metadata must be empty unless IS_PR_BUILD=true"
+            }
+        }
+        buildConfigField(
+            "int",
+            "OFFICIAL_SAKISU_SIGNATURE_SIZE",
+            officialSakiSuSignatureSize.toString(),
+        )
+        buildConfigField(
+            "String",
+            "OFFICIAL_SAKISU_SIGNATURE_HASH",
+            "\"$officialSakiSuSignatureHash\"",
+        )
         buildConfigField("String", "EXPECTED_PR_BUILD_SIZE", "\"$expectedPrBuildSize\"")
         buildConfigField("String", "EXPECTED_PR_BUILD_HASH", "\"$expectedPrBuildHash\"")
 

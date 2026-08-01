@@ -111,6 +111,7 @@ import com.sakisu.sakisu.ui.theme.getCardColors
 import com.sakisu.sakisu.ui.theme.getCardElevation
 import com.sakisu.sakisu.ui.theme.renderBackgroundBlur
 import com.sakisu.sakisu.ui.util.LocalSnackbarHost
+import com.sakisu.sakisu.ui.util.ManagerTrustStatus
 import com.sakisu.sakisu.ui.util.module.LatestVersionInfo
 import com.sakisu.sakisu.ui.util.reboot
 import com.sakisu.sakisu.ui.viewmodel.HomeUiState
@@ -275,12 +276,9 @@ fun HomePage(
                         )
                     }
 
-                    if (!uiState.systemStatus.isOfficialSignature) {
+                    if (uiState.systemStatus.managerTrustStatus == ManagerTrustStatus.UNAUTHORIZED) {
                         WarningCard(
-                            message = stringResource(
-                                R.string.unofficial_version_notice,
-                                stringResource(R.string.app_name)
-                            ),
+                            message = stringResource(R.string.manager_not_authorized_notice),
                             icon = {
                                 Icon(
                                     imageVector = Icons.TwoTone.Error,
@@ -544,8 +542,8 @@ private fun StatusCard(
                     }
 
                     val workingModeSurfaceText = when {
-                        systemStatus.lkmMode == true -> "LKM"
-                        else -> "Built-in"
+                        systemStatus.lkmMode == true -> stringResource(R.string.working_mode_lkm)
+                        else -> stringResource(R.string.working_mode_builtin)
                     }
 
                     Icon(
@@ -742,13 +740,13 @@ fun DonateCard() {
         ) {
             Column {
                 Text(
-                    text = stringResource(R.string.home_support_title),
+                    text = stringResource(R.string.home_support_upstream_title),
                     style = MaterialTheme.typography.titleSmall,
                 )
 
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = stringResource(R.string.home_support_content),
+                    text = stringResource(R.string.home_support_upstream_content),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
@@ -854,10 +852,15 @@ private fun InfoCard(
             if (!isSimpleMode && systemInfo.managersList != null) {
                 val signatureMap =
                     systemInfo.managersList.managers.groupBy { it.signatureIndex }
+                val managerUidFormat = stringResource(R.string.manager_uid)
 
                 val managersText = buildString {
                     signatureMap.toSortedMap().forEach { (signatureIndex, managers) ->
-                        append(managers.joinToString(", ") { "UID: ${it.uid}" })
+                        append(
+                            managers.joinToString(", ") {
+                                managerUidFormat.format(it.uid)
+                            }
+                        )
                         append(" ")
                         append(
                             when (signatureIndex) {

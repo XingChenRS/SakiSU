@@ -95,6 +95,8 @@
     <string name="home_click_to_learn_kernelsu">瞭解如何安裝 KernelSU 以及如何開發模組</string>
     <string name="home_support_title">支持開發</string>
     <string name="home_support_content">KernelSU 將保持免費開源，向開發者捐贈以表示支持。</string>
+    <string name="home_support_upstream_title">支持上游 KernelSU</string>
+    <string name="home_support_upstream_content">此連結會開啟 KernelSU 維護者 weishu 的 Patreon；捐款不會提供予 SakiSU。</string>
     <string name="profile_default">預設</string>
     <string name="profile_template">範本</string>
     <string name="profile_custom">自訂</string>
@@ -108,7 +110,14 @@
     <string name="profile_umount_modules">解除安裝模組</string>
     <string name="failed_to_update_app_profile">為 %s 更新 App Profile 失敗</string>
     <string name="debug_version_notice">"你正在使用管理器嘅 DEBUG 構建，如果你唔知道乜嘢係 DEBUG 構建，請立即切換至 RELEASE 構建"</string>
-    <string name="unofficial_version_notice">"您使用嘅管理器並非 %s 官方管理器，您可能無法獲得權限。"</string>
+    <string name="manager_not_authorized_notice">目前運行嘅核心尚未授權此 SakiSU 管理器。請安裝相符嘅 SakiSU 核心/LKM；如由舊簽名版本遷移，請先設定動態管理器。</string>
+    <string name="boot_image_classification_failed">無法將所選映像識別為 boot、init_boot 或 vendor_boot，未有作出任何修改。</string>
+    <string name="vendor_boot_rmvr_lkm_not_used">vendor_boot 清理只會移除 vr/vklp，不會安裝所選 LKM。</string>
+    <string name="install_partition_default_label">%1$s（預設）</string>
+    <string name="install_selected_file_fallback">檔案</string>
+    <string name="dynamic_manager_owner_debug">偵錯憑證</string>
+    <string name="dynamic_manager_owner_kernelsu_toolkit">KernelSU 工具箱</string>
+    <string name="dynamic_manager_owner_kernel">核心</string>
     <string name="settings_umount_modules_default">預設卸載模組</string>
     <string name="settings_umount_modules_default_summary">App Profile 中\"卸載模組\"嘅全局預設值，如果啟用，將會為冇設定 Profile 嘅應用程式移除所有模組針對系統嘅修改。</string>
     <string name="profile_umount_modules_summary">啟用該選項後將允許 KernelSU 為本應用程式還原被模組修改過嘅檔案。</string>

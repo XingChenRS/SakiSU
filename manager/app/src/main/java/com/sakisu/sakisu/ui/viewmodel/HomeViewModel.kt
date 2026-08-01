@@ -15,6 +15,7 @@ import com.sakisu.sakisu.ksuApp
 import com.sakisu.sakisu.ui.susfs.util.SuSFSManager
 import com.sakisu.sakisu.ui.util.downloader.checkNewVersion
 import com.sakisu.sakisu.ui.util.getMetaModuleImplement
+import com.sakisu.sakisu.ui.util.getManagerTrustStatus
 import com.sakisu.sakisu.ui.util.getModuleCount
 import com.sakisu.sakisu.ui.util.getSELinuxStatus
 import com.sakisu.sakisu.ui.util.getSuSFSFeatures
@@ -22,8 +23,8 @@ import com.sakisu.sakisu.ui.util.getSuSFSStatus
 import com.sakisu.sakisu.ui.util.getSuSFSVersion
 import com.sakisu.sakisu.ui.util.getSuperuserCount
 import com.sakisu.sakisu.ui.util.getZygiskImplement
-import com.sakisu.sakisu.ui.util.isOfficialSignature
 import com.sakisu.sakisu.ui.util.isSELinuxPermissive
+import com.sakisu.sakisu.ui.util.ManagerTrustStatus
 import com.sakisu.sakisu.ui.util.module.LatestVersionInfo
 import com.sakisu.sakisu.ui.util.rootAvailable
 import kotlinx.coroutines.Dispatchers
@@ -66,7 +67,7 @@ class HomeViewModel : ViewModel() {
         val requireNewKernel: Boolean = false,
         val uapiMismatch: Boolean = false,
         val isSELinuxPermissive: Boolean = false,
-        val isOfficialSignature: Boolean = true,
+        val managerTrustStatus: ManagerTrustStatus = ManagerTrustStatus.CHECK_FAILED,
         val kernelPatchImplement: Natives.KernelPatchImplement = Natives.KernelPatchImplement.NO_KERNEL_PATCH_SUPPORT,
     )
 
@@ -107,7 +108,14 @@ class HomeViewModel : ViewModel() {
         val job = viewModelScope.launch(Dispatchers.IO) {
             runCatching {
                 val kernelVersion = getKernelVersion()
-                val isManager = runCatching { Natives.isManager }.getOrDefault(false)
+                val isManagerResult = runCatching { Natives.isManager }
+                val isManager = isManagerResult.getOrDefault(false)
+                val managerTrustStatus = if (isManagerResult.isSuccess) {
+                    runCatching { getManagerTrustStatus(isManagerResult.getOrThrow()) }
+                        .getOrDefault(ManagerTrustStatus.CHECK_FAILED)
+                } else {
+                    ManagerTrustStatus.CHECK_FAILED
+                }
                 val ksuVersion = if (isManager) Natives.version else null
                 val kernelUAPIVersion = if (isManager) Natives.kernelUAPIVersion else null
                 val managerUAPIVersion = Natives.managerUAPIVersion
@@ -131,7 +139,7 @@ class HomeViewModel : ViewModel() {
                     kernelUAPIVersion = kernelUAPIVersion,
                     managerUAPIVersion = managerUAPIVersion,
                     isSELinuxPermissive = runCatching { isSELinuxPermissive() }.getOrDefault(false),
-                    isOfficialSignature = runCatching { isOfficialSignature() }.getOrDefault(false),
+                    managerTrustStatus = managerTrustStatus,
                     kernelPatchImplement = Natives.getKernelPatchImplement(),
                 )
                 _uiState.update {

@@ -161,7 +161,16 @@ def run_cmd(args: List[str], fail_msg: str) -> None:
     proc = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if proc.returncode != 0:
         output = proc.stdout.strip()
-        raise RuntimeError(f"{fail_msg}\nCommand: {' '.join(args)}\n{output}")
+        redacted_args: List[str] = []
+        redact_next = False
+        for arg in args:
+            if redact_next:
+                redacted_args.append("<redacted>")
+                redact_next = False
+                continue
+            redacted_args.append(arg)
+            redact_next = arg in {"--ks-pass", "--key-pass"}
+        raise RuntimeError(f"{fail_msg}\nCommand: {' '.join(redacted_args)}\n{output}")
 
 
 def find_latest_apk(app_build_type: str) -> Path:

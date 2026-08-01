@@ -106,7 +106,6 @@
     <string name="profile_umount_modules">Modülleri bağlamayı kaldır</string>
     <string name="failed_to_update_app_profile">%s için Uygulama Profili güncellenemedi</string>
     <string name="debug_version_notice">"Yöneticinin DEBUG sürümünü kullanıyorsunuz. Eğer DEBUG sürümünün ne anlama geldiğini bilmiyorsanız hemen RELEASE sürümüne geçin"</string>
-    <string name="unofficial_version_notice">"Kullandığınız yönetici orijinal %s yöneticisi değil, kök erişimi alamayabilirsiniz."</string>
     <string name="conflict_with_apatch">APatch tespit edildi, hiçbir şey çalışmayabilir.</string>
     <string name="settings_umount_modules_default">Modülleri varsayılan olarak bağlamayı kaldır</string>
     <string name="settings_umount_modules_default_summary">Uygulama Profilindeki \"Modülleri bağlamayı kaldır\" için küresel varsayılan değer. Etkinleştirilirse, profil ayarlanmamış uygulamalar için sistemdeki tüm modül değişikliklerini kaldırır.</string>

@@ -416,7 +416,7 @@ fun SettingsPage(bottomPadding: Dp) {
                         onSaveLog = {
                             val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH_mm")
                             val current = LocalDateTime.now().format(formatter)
-                            exportBugreportLauncher.launch("KernelSU_bugreport_${current}.tar.gz")
+                            exportBugreportLauncher.launch("SakiSU_bugreport_${current}.tar.gz")
                             showBottomsheet = false
                         },
                         onShareLog = {
@@ -551,7 +551,7 @@ fun UninstallItem(
     val scope = rememberCoroutineScope()
     val uninstallConfirmDialog = rememberConfirmDialog()
     val showTodo = {
-        Toast.makeText(context, "TODO", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, R.string.not_implemented_yet, Toast.LENGTH_SHORT).show()
     }
     val uninstallDialog = rememberUninstallDialog { uninstallType ->
         scope.launch {

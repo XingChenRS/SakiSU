@@ -97,7 +97,8 @@ ccflags-y += -DKSU_VERSION=$(KSU_VERSION)
 ccflags-y += -DKSU_VERSION_FULL=\"$(KSU_VERSION_FULL)\"
 
 ifdef CONFIG_KSU_MULTI_MANAGER_SUPPORT
-$(info -- Supported Unofficial Manager: MKSU, RKSU, KOWSU, SukiSU-Ultra, SakiSU )
+$(info -- SakiSU production Manager certificate enabled)
+$(info -- Additional compatible Managers: KernelSU, MKSU, RKSU, KOWSU, SukiSU-Ultra)
 endif
 
 KERNEL_VERSION := $(VERSION).$(PATCHLEVEL)

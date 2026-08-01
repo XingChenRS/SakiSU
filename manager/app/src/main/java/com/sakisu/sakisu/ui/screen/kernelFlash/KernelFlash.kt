@@ -237,7 +237,7 @@ fun KernelFlashScreen(
                         val date = format.format(Date())
                         val file = File(
                             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                            "KernelSU_kernel_flash_log_${date}.log"
+                            "SakiSU_kernel_flash_log_${date}.log"
                         )
                         file.writeText(logContent.toString())
                         snackBarHost.showSnackbar(logSavedString.format(file.absolutePath))

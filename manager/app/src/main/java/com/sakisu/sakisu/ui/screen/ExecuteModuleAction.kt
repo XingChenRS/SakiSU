@@ -143,10 +143,12 @@ fun ExecuteModuleActionScreen(moduleId: String) {
                             val date = format.format(Date())
                             val file = File(
                                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                                "KernelSU_module_action_log_${date}.log"
+                                "SakiSU_module_action_log_${date}.log"
                             )
                             file.writeText(logContent.toString())
-                            snackBarHost.showSnackbar("Log saved to ${file.absolutePath}")
+                            snackBarHost.showSnackbar(
+                                context.getString(R.string.log_saved_to, file.absolutePath)
+                            )
                         }
                     }
                 },

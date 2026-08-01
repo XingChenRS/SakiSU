@@ -99,6 +99,8 @@
     <string name="home_click_to_learn_kernelsu">了解如何安装 KernelSU 以及如何开发模块</string>
     <string name="home_support_title">支持开发</string>
     <string name="home_support_content">KernelSU 将保持免费开源，向开发者捐赠以表示支持。</string>
+    <string name="home_support_upstream_title">支持上游 KernelSU</string>
+    <string name="home_support_upstream_content">此链接会打开 KernelSU 维护者 weishu 的 Patreon；捐赠不会提供给 SakiSU。</string>
     <string name="profile_default">默认</string>
     <string name="profile_template">模版</string>
     <string name="profile_custom">自定义</string>
@@ -114,7 +116,11 @@
     <string name="profile_umount_modules">卸载模块</string>
     <string name="failed_to_update_app_profile">为 %s 更新 App Profile 失败</string>
     <string name="debug_version_notice">"你正在使用管理器的 DEBUG 构建，如果你不知道什么是 DEBUG 构建，请立即切换至 RELEASE 构建"</string>
-    <string name="unofficial_version_notice">"您使用的管理器并非 %s 官方管理器，您可能无法获得权限。"</string>
+    <string name="manager_not_authorized_notice">当前运行的内核尚未授权此 SakiSU 管理器。请安装与之匹配的 SakiSU 内核/LKM；若正从旧签名版本迁移，请先配置动态管理器。</string>
+    <string name="boot_image_classification_failed">无法将所选镜像识别为 boot、init_boot 或 vendor_boot，未执行任何修改。</string>
+    <string name="vendor_boot_rmvr_lkm_not_used">vendor_boot 清理只会移除 vr/vklp，不会安装所选 LKM。</string>
+    <string name="install_partition_default_label">%1$s（默认）</string>
+    <string name="install_selected_file_fallback">文件</string>
     <string name="conflict_with_apatch">检测到 APatch, 所有功能均可能停止工作</string>
     <string name="settings_umount_modules_default">默认卸载模块</string>
     <string name="settings_umount_modules_default_summary">App Profile 中\"卸载模块\"的全局默认值，如果启用，将会为没有设置 Profile 的应用移除所有模块针对系统的修改。</string>
@@ -594,6 +600,9 @@
     <string name="dynamic_manager_clear_config">清除动态管理器</string>
     <string name="dynamic_manager_clear_config_summary">禁用动态管理器配置</string>
     <string name="dynamic_manager_fixed_manager_summary">%1$s\n由 %2$s 管理</string>
+    <string name="dynamic_manager_owner_debug">调试证书</string>
+    <string name="dynamic_manager_owner_kernelsu_toolkit">KernelSU 工具箱</string>
+    <string name="dynamic_manager_owner_kernel">内核</string>
     <string name="dynamic_manager_grant_confirm_title">确认授权？</string>
     <string name="dynamic_manager_grant_confirm_message">所选 App 将成为动态管理器，若当前已设置动态管理器，其将会立刻失效\n\n这将授予对于此设备的最高权限，如果你不知道这意味着什么，请取消</string>
     <string name="dynamic_manager_grant_final_confirm_title">确认最高权限</string>

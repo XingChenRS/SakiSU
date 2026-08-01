@@ -58,6 +58,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -90,7 +91,10 @@ import com.sakisu.sakisu.ui.theme.blurSource
 import com.sakisu.sakisu.ui.theme.getCardColors
 import com.sakisu.sakisu.ui.theme.getCardElevation
 import com.sakisu.sakisu.ui.theme.renderBackgroundBlur
+import com.sakisu.sakisu.ui.util.BootImageKind
 import com.sakisu.sakisu.ui.util.LkmSelection
+import com.sakisu.sakisu.ui.util.LocalSnackbarHost
+import com.sakisu.sakisu.ui.util.classifyBootImage
 import com.sakisu.sakisu.ui.util.getAvailablePartitions
 import com.sakisu.sakisu.ui.util.getCurrentKmi
 import com.sakisu.sakisu.ui.util.getDefaultPartition
@@ -99,6 +103,8 @@ import com.sakisu.sakisu.ui.util.getSupportedKmis
 import com.sakisu.sakisu.ui.util.isAbDevice
 import com.sakisu.sakisu.ui.util.probeRootAvailable
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -127,6 +133,14 @@ fun InstallScreen(
     var showRebootDialog by remember { mutableStateOf(false) }
     var showSlotSelectionDialog by remember { mutableStateOf(false) }
     var tempKernelUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedBootImageKind by remember { mutableStateOf<BootImageKind?>(null) }
+    var bootImageClassificationJob by remember { mutableStateOf<Job?>(null) }
+    var bootImageClassificationRequest by remember { mutableIntStateOf(0) }
+    var isClassifyingBootImage by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+    val snackBarHost = LocalSnackbarHost.current
+    val bootImageClassificationFailed = stringResource(R.string.boot_image_classification_failed)
+    val vendorBootLkmNotUsed = stringResource(R.string.vendor_boot_rmvr_lkm_not_used)
 
     val kernelVersion = getKernelVersion()
     val isGKI = kernelVersion.isGKI()
@@ -210,6 +224,29 @@ fun InstallScreen(
         }
     }
 
+    fun selectedPartitionFor(method: InstallMethod): String? = when (method) {
+        is InstallMethod.DirectInstall,
+        is InstallMethod.DirectInstallToInactiveSlot ->
+            partitionsState.getOrNull(partitionSelectionIndex)
+        else -> null
+    }
+
+    fun usesVendorBootRmvr(method: InstallMethod): Boolean = when (method) {
+        is InstallMethod.SelectFile -> selectedBootImageKind == BootImageKind.VENDOR_BOOT
+        is InstallMethod.DirectInstall,
+        is InstallMethod.DirectInstallToInactiveSlot ->
+            selectedPartitionFor(method) == "vendor_boot"
+        is InstallMethod.HorizonKernel -> false
+    }
+
+    LaunchedEffect(installMethod, partitionSelectionIndex, partitionsState) {
+        val method = installMethod ?: return@LaunchedEffect
+        if (usesVendorBootRmvr(method) && lkmSelection != LkmSelection.KmiNone) {
+            lkmSelection = LkmSelection.KmiNone
+            snackBarHost.showSnackbar(vendorBootLkmNotUsed)
+        }
+    }
+
     val onInstall = {
         installMethod?.let { method ->
             when (method) {
@@ -225,7 +262,7 @@ fun InstallScreen(
                 }
                 else -> {
                     val isOta = method is InstallMethod.DirectInstallToInactiveSlot
-                    val partitionSelection = partitionsState.getOrNull(partitionSelectionIndex)
+                    val partitionSelection = selectedPartitionFor(method)
                     val flashIt = FlashIt.FlashBoot(
                         boot = if (method is InstallMethod.SelectFile) method.uri else null,
                         lkm = lkmSelection,
@@ -266,9 +303,12 @@ fun InstallScreen(
     }
 
     val continueInstall: () -> Unit = {
+        val method = installMethod
         val needsKmi = isGKI &&
             lkmSelection == LkmSelection.KmiNone &&
-            installMethod !is InstallMethod.HorizonKernel &&
+            method != null &&
+            method !is InstallMethod.HorizonKernel &&
+            !usesVendorBootRmvr(method) &&
             currentKmi.isBlank()
 
         if (needsKmi) {
@@ -278,8 +318,45 @@ fun InstallScreen(
         }
     }
 
-    val onClickNext: () -> Unit = {
-        continueInstall()
+    val onClickNext: () -> Unit = onClickNext@{
+        val method = installMethod
+        if (method is InstallMethod.SelectFile && selectedBootImageKind == null) {
+            val uri = method.uri
+            if (uri == null) {
+                coroutineScope.launch {
+                    snackBarHost.showSnackbar(bootImageClassificationFailed)
+                }
+                return@onClickNext
+            }
+            if (isClassifyingBootImage) {
+                return@onClickNext
+            }
+
+            val request = ++bootImageClassificationRequest
+            isClassifyingBootImage = true
+            bootImageClassificationJob?.cancel()
+            bootImageClassificationJob = coroutineScope.launch {
+                val kind = classifyBootImage(uri)
+                val currentMethod = installMethod
+                if (request != bootImageClassificationRequest ||
+                    currentMethod !is InstallMethod.SelectFile ||
+                    currentMethod.uri != uri
+                ) {
+                    return@launch
+                }
+
+                isClassifyingBootImage = false
+                if (kind == null) {
+                    snackBarHost.showSnackbar(bootImageClassificationFailed)
+                    return@launch
+                }
+
+                selectedBootImageKind = kind
+                continueInstall()
+            }
+        } else {
+            continueInstall()
+        }
     }
 
     val installOnlySupportKoFile = stringResource(R.string.install_only_support_ko_file)
@@ -341,6 +418,10 @@ fun InstallScreen(
                 isAbDevice = deviceProbe.isAbDevice,
                 defaultPartitionName = deviceProbe.defaultPartition,
                 onSelected = { method ->
+                    bootImageClassificationJob?.cancel()
+                    bootImageClassificationRequest++
+                    isClassifyingBootImage = false
+                    selectedBootImageKind = null
                     if (method is InstallMethod.HorizonKernel && method.uri != null) {
                         if (abDevice) {
                             tempKernelUri = method.uri
@@ -380,7 +461,11 @@ fun InstallScreen(
                         }.value
 
                         val displayPartitions = partitionsState.map { name ->
-                            if (defaultPartitionState == name) "$name (default)" else name
+                            if (defaultPartitionState == name) {
+                                stringResource(R.string.install_partition_default_label, name)
+                            } else {
+                                name
+                            }
                         }
 
                         val defaultIndex = partitionsState.indexOf(defaultPartitionState).takeIf { it >= 0 } ?: 0
@@ -407,7 +492,11 @@ fun InstallScreen(
                     .fillMaxWidth()
                     .padding(16.dp)
             ) {
-                if (isGKI) {
+                val currentMethod = installMethod
+                if (isGKI && currentMethod != null &&
+                    currentMethod !is InstallMethod.HorizonKernel &&
+                    !usesVendorBootRmvr(currentMethod)
+                ) {
                     // 使用本地的LKM文件
                     ElevatedCard(
                         colors = getCardColors(MaterialTheme.colorScheme.surfaceVariant),
@@ -425,7 +514,8 @@ fun InstallScreen(
                             description = (lkmSelection as? LkmSelection.LkmUri)?.let {
                                 stringResource(
                                     id = R.string.selected_lkm,
-                                    it.uri.lastPathSegment ?: "(file)"
+                                    it.uri.lastPathSegment
+                                        ?: stringResource(R.string.install_selected_file_fallback)
                                 )
                             },
                             icon = Icons.AutoMirrored.Filled.Input,
@@ -459,7 +549,7 @@ fun InstallScreen(
 
                 Button(
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = installMethod != null,
+                    enabled = installMethod != null && !isClassifyingBootImage,
                     onClick = onClickNext,
                     shape = MaterialTheme.shapes.medium,
                     colors = ButtonDefaults.buttonColors(

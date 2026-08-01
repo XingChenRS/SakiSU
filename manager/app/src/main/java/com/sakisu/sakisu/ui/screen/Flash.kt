@@ -380,7 +380,11 @@ fun FlashScreen(flashIt: FlashIt) {
                     text = installingModuleString.format(flashIt.currentIndex + 1, flashIt.uris.size, moduleName)
                     logContent.append(text).append("\n")
                 } catch (_: Exception) {
-                    text = installingModuleString.format(flashIt.currentIndex + 1, flashIt.uris.size, "Module")
+                    text = installingModuleString.format(
+                        flashIt.currentIndex + 1,
+                        flashIt.uris.size,
+                        context.getString(R.string.module),
+                    )
                     logContent.append(text).append("\n")
                 }
             }
@@ -501,7 +505,7 @@ fun FlashScreen(flashIt: FlashIt) {
                         val date = format.format(Date())
                         val file = File(
                             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                            "KernelSU_install_log_${date}.log"
+                            "SakiSU_install_log_${date}.log"
                         )
                         file.writeText(logContent.toString())
                         snackBarHost.showSnackbar(logSavedString.format(file.absolutePath))

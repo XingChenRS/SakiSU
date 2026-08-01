@@ -329,11 +329,11 @@ private fun DynamicManagerAppItem(
                 R.string.dynamic_manager_fixed_manager_summary,
                 app.packageName,
                 if ((app.managerSignatureIndex ?: 0) == 254)
-                    "Debug"
+                    stringResource(R.string.dynamic_manager_owner_debug)
                 else if ((app.managerSignatureIndex ?: 0) == 253)
-                    "KernelSU Toolkit"
+                    stringResource(R.string.dynamic_manager_owner_kernelsu_toolkit)
                 else
-                    "Kernel"
+                    stringResource(R.string.dynamic_manager_owner_kernel)
             )
         } else {
             app.packageName

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name" translatable="false">SakiSU</string>
+    <string name="webui_task_title" translatable="false">%1$s - %2$s</string>
     <string name="home">Home</string>
     <string name="learn_more">Learn more</string>
     <string name="home_not_installed">Not installed</string>
@@ -101,6 +102,8 @@
     <string name="home_click_to_learn_kernelsu">Learn how to install KernelSU and use modules</string>
     <string name="home_support_title">Support Us</string>
     <string name="home_support_content">KernelSU is, and always will be, free, and open source. You can however show us that you care by making a donation</string>
+    <string name="home_support_upstream_title">Support upstream KernelSU</string>
+    <string name="home_support_upstream_content">This link opens KernelSU maintainer weishu\'s Patreon. Donations do not go to SakiSU.</string>
     <string name="profile" translatable="false">App Profile</string>
     <string name="profile_default">Default</string>
     <string name="profile_template">Template</string>
@@ -117,7 +120,15 @@
     <string name="profile_umount_modules">Umount modules</string>
     <string name="failed_to_update_app_profile">Failed to update App Profile for %s</string>
     <string name="debug_version_notice">"You are using DEBUG build of manager, if you don't know what is DEBUG version, switch into RELEASE build immediately"</string>
-    <string name="unofficial_version_notice">"The manager you are using is not the official %s manager, and you may not be able to obtain permissions."</string>
+    <string name="manager_not_authorized_notice">The running kernel has not authorized this SakiSU Manager. Install the matching SakiSU kernel/LKM or configure Dynamic Manager before migrating from an older signing certificate.</string>
+    <string name="working_mode_lkm" translatable="false">LKM</string>
+    <string name="working_mode_builtin">Built-in</string>
+    <string name="manager_uid" translatable="false">UID: %1$d</string>
+    <string name="not_implemented_yet">Not implemented yet</string>
+    <string name="boot_image_classification_failed">Unable to identify the selected image as boot, init_boot, or vendor_boot. No changes were made.</string>
+    <string name="vendor_boot_rmvr_lkm_not_used">vendor_boot cleanup only removes vr/vklp; the selected LKM is not installed.</string>
+    <string name="install_partition_default_label">%1$s (default)</string>
+    <string name="install_selected_file_fallback">file</string>
     <string name="conflict_with_apatch">Detected APatch, Everything maybe stop working.</string>
     <string name="settings_umount_modules_default">Umount modules by default</string>
     <string name="settings_umount_modules_default_summary">The global default value for \"Umount modules\" in App Profile. If enabled, it will remove all module modifications to the system for apps that don\'t have a profile set</string>
@@ -189,6 +200,7 @@
     <string name="selected_lkm">Selected LKM: %s</string>
     <string name="save_log">Save logs</string>
     <string name="log_saved">Logs saved</string>
+    <string name="log_saved_to">Log saved to %1$s</string>
     <string name="unknown_module">Unknown module</string>
     <string name="confirm">Confirm</string>
     <string name="cancel">Cancel</string>
@@ -598,6 +610,9 @@
     <string name="dynamic_manager_clear_config">Clear dynamic manager</string>
     <string name="dynamic_manager_clear_config_summary">Disable the dynamic manager configuration</string>
     <string name="dynamic_manager_fixed_manager_summary">%1$s\nManaged by %2$s</string>
+    <string name="dynamic_manager_owner_debug">Debug certificate</string>
+    <string name="dynamic_manager_owner_kernelsu_toolkit">KernelSU Toolkit</string>
+    <string name="dynamic_manager_owner_kernel">Kernel</string>
     <string name="dynamic_manager_grant_confirm_title">Confirm authorization?</string>
     <string name="dynamic_manager_grant_confirm_message">The selected app will become the dynamic manager. If a dynamic manager is already configured, it will be invalidated immediately.\n\nThis grants the highest permission level for this device. If you do not know what this means, cancel.</string>
     <string name="dynamic_manager_grant_final_confirm_title">Confirm highest privilege</string>

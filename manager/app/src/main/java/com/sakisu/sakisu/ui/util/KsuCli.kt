@@ -4,16 +4,19 @@ import android.annotation.SuppressLint
 import android.net.Uri
 import android.os.Environment
 import android.os.Parcelable
+import android.os.Process
 import android.os.SystemClock
 import android.system.Os
 import android.util.Log
 import com.sakisu.sakisu.BuildConfig
 import com.sakisu.sakisu.Natives
+import com.sakisu.sakisu.R
 import com.sakisu.sakisu.ksuApp
 import com.topjohnwu.superuser.CallbackList
 import com.topjohnwu.superuser.Shell
 import com.topjohnwu.superuser.ShellUtils
 import com.topjohnwu.superuser.io.SuFile
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -165,21 +168,110 @@ fun clearDynamicManager(): Boolean {
     return result
 }
 
-private const val OFFICIAL_SAKISU_SIGNATURE =
-    "size: 0x310, hash: f5391718452b269336a4cf0077b2fc4f9ae91253f061126a2708d5017134287c"
+private data class ManagerSignature(
+    val size: Int,
+    val hash: String,
+)
 
-suspend fun isOfficialSignature(): Boolean = withContext(Dispatchers.IO) {
-    val shell = getRootShell()
-    val out = shell.newJob()
-        .add("${getKsuDaemonPath()} debug get-sign ${ksuApp.packageResourcePath}")
-        .to(ArrayList<String>(), null).exec().out
-    val current = out.firstOrNull()?.trim().orEmpty()
-    if (current == OFFICIAL_SAKISU_SIGNATURE) return@withContext true
-
-    val prSize = BuildConfig.EXPECTED_PR_BUILD_SIZE
-    val prHash = BuildConfig.EXPECTED_PR_BUILD_HASH
-    prSize.isNotEmpty() && prHash.isNotEmpty() && current == "size: $prSize, hash: $prHash"
+enum class ManagerTrustStatus {
+    OFFICIAL_RELEASE,
+    AUTHORIZED_PR,
+    AUTHORIZED_DYNAMIC,
+    AUTHORIZED_OTHER,
+    UNAUTHORIZED,
+    CHECK_FAILED,
 }
+
+private val officialSakiSuSignature = ManagerSignature(
+    size = BuildConfig.OFFICIAL_SAKISU_SIGNATURE_SIZE,
+    hash = BuildConfig.OFFICIAL_SAKISU_SIGNATURE_HASH.lowercase(),
+)
+
+private val managerSignaturePattern =
+    Regex("""^size:\s*(0x[0-9a-fA-F]+|\d+),\s*hash:\s*([0-9a-fA-F]{64})$""")
+
+private fun parseSignatureSize(value: String): Int? {
+    return if (value.startsWith("0x", ignoreCase = true)) {
+        value.substring(2).toIntOrNull(16)
+    } else {
+        value.toIntOrNull()
+    }
+}
+
+private fun parseManagerSignature(value: String): ManagerSignature? {
+    val match = managerSignaturePattern.matchEntire(value.trim()) ?: return null
+    return ManagerSignature(
+        size = parseSignatureSize(match.groupValues[1]) ?: return null,
+        hash = match.groupValues[2].lowercase(),
+    )
+}
+
+suspend fun getManagerTrustStatus(kernelAuthorized: Boolean): ManagerTrustStatus {
+    if (!kernelAuthorized) return ManagerTrustStatus.UNAUTHORIZED
+
+    return withSharedRootShell { shell ->
+        val result = shell.newJob()
+            .add("${getKsuDaemonPath()} debug get-sign ${shellQuote(ksuApp.packageResourcePath)}")
+            .to(ArrayList<String>(), null)
+            .exec()
+        if (!result.isSuccess) return@withSharedRootShell ManagerTrustStatus.CHECK_FAILED
+
+        val current = result.out.firstNotNullOfOrNull(::parseManagerSignature)
+            ?: return@withSharedRootShell ManagerTrustStatus.CHECK_FAILED
+        if (current == officialSakiSuSignature) {
+            return@withSharedRootShell ManagerTrustStatus.OFFICIAL_RELEASE
+        }
+
+        val prSize = BuildConfig.EXPECTED_PR_BUILD_SIZE
+        val prHash = BuildConfig.EXPECTED_PR_BUILD_HASH
+        val prSignature = if (BuildConfig.IS_PR_BUILD && prSize.isNotBlank() && prHash.isNotBlank()) {
+            parseManagerSignature("size: $prSize, hash: $prHash")
+        } else {
+            null
+        }
+        if (current == prSignature) {
+            val kernelPrBuild = runCatching { Natives.isPrBuild }.getOrNull()
+                ?: return@withSharedRootShell ManagerTrustStatus.CHECK_FAILED
+            if (kernelPrBuild) {
+                return@withSharedRootShell ManagerTrustStatus.AUTHORIZED_PR
+            }
+        }
+
+        val appId = Process.myUid() % 100_000
+        val signatureIndex = runCatching { Natives.getManagersList() }
+            .getOrNull()
+            ?.managers
+            ?.firstOrNull { it.uid == appId }
+            ?.signatureIndex
+            ?: return@withSharedRootShell ManagerTrustStatus.CHECK_FAILED
+
+        if (signatureIndex == 255) {
+            ManagerTrustStatus.AUTHORIZED_DYNAMIC
+        } else {
+            ManagerTrustStatus.AUTHORIZED_OTHER
+        }
+    }
+}
+
+enum class BootImageKind {
+    BOOT,
+    INIT_BOOT,
+    VENDOR_BOOT,
+}
+
+private fun parseBootImageKind(value: String): BootImageKind? = when (value.trim()) {
+    "boot" -> BootImageKind.BOOT
+    "init_boot" -> BootImageKind.INIT_BOOT
+    "vendor_boot" -> BootImageKind.VENDOR_BOOT
+    else -> null
+}
+
+private fun classifyBootImageFile(image: File): BootImageKind? = runCatching {
+    withNewRootShell {
+        val command = "boot-info classify-image ${shellQuote(image.absolutePath)}"
+        parseBootImageKind(ShellUtils.fastCmd(this, "${getKsuDaemonPath()} $command"))
+    }
+}.getOrNull()
 
 suspend fun getFeatureStatus(feature: String): String = withContext(Dispatchers.IO) {
     val shell = getRootShell()
@@ -364,24 +456,44 @@ fun installBoot(
     val resolver = ksuApp.contentResolver
 
     val bootFile = bootUri?.let { uri ->
-        with(resolver.openInputStream(uri)) {
-            val bootFile = File(ksuApp.cacheDir, "boot.img")
-            bootFile.outputStream().use { output ->
-                this?.copyTo(output)
+        runCatching {
+            val input = resolver.openInputStream(uri)
+                ?: error("Unable to open the selected boot image")
+            val image = File.createTempFile("sakisu-boot-", ".img", ksuApp.cacheDir)
+            input.use {
+                image.outputStream().use { output -> it.copyTo(output) }
             }
-
-            bootFile
+            image
+        }.getOrElse {
+            onStderr(ksuApp.getString(R.string.boot_image_classification_failed))
+            onFinish(false, 1)
+            return false
         }
     }
 
-    onStdout("[manager] standard SakiSU patch flow")
-    var cmd = "boot-patch"
+    val selectedImageKind = bootFile?.let(::classifyBootImageFile)
+    if (bootFile != null && selectedImageKind == null) {
+        bootFile.delete()
+        onStderr(ksuApp.getString(R.string.boot_image_classification_failed))
+        onFinish(false, 1)
+        return false
+    }
+    val useVendorBootRmvr = if (bootFile != null) {
+        selectedImageKind == BootImageKind.VENDOR_BOOT
+    } else {
+        partition == "vendor_boot"
+    }
+    if (useVendorBootRmvr && lkm != LkmSelection.KmiNone) {
+        onStdout(ksuApp.getString(R.string.vendor_boot_rmvr_lkm_not_used))
+    }
+
+    var cmd = if (useVendorBootRmvr) "boot-patch-rmvr" else "boot-patch"
 
     cmd += if (bootFile == null) {
         // no boot.img, use -f to flash
         " -f"
     } else {
-        " -b ${bootFile.absolutePath}"
+        " -b ${shellQuote(bootFile.absolutePath)}"
     }
 
     if (ota) {
@@ -389,25 +501,32 @@ fun installBoot(
     }
 
     var lkmFile: File? = null
-    when (lkm) {
-        is LkmSelection.LkmUri -> {
-            lkmFile = with(resolver.openInputStream(lkm.uri)) {
-                val file = File(ksuApp.cacheDir, "kernelsu-tmp-lkm.ko")
-                file.outputStream().use { output ->
-                    this?.copyTo(output)
+    if (!useVendorBootRmvr) {
+        when (lkm) {
+            is LkmSelection.LkmUri -> {
+                lkmFile = runCatching {
+                    val input = resolver.openInputStream(lkm.uri)
+                        ?: error("Unable to open the selected LKM")
+                    val file = File.createTempFile("sakisu-lkm-", ".ko", ksuApp.cacheDir)
+                    input.use {
+                        file.outputStream().use { output -> it.copyTo(output) }
+                    }
+                    file
+                }.getOrElse {
+                    bootFile?.delete()
+                    onFinish(false, 1)
+                    return false
                 }
-
-                file
+                cmd += " -m ${shellQuote(lkmFile.absolutePath)}"
             }
-            cmd += " -m ${lkmFile.absolutePath}"
-        }
 
-        is LkmSelection.KmiString -> {
-            cmd += " --kmi ${lkm.value}"
-        }
+            is LkmSelection.KmiString -> {
+                cmd += " --kmi ${shellQuote(lkm.value)}"
+            }
 
-        LkmSelection.KmiNone -> {
-            // do nothing
+            LkmSelection.KmiNone -> {
+                // do nothing
+            }
         }
     }
 
@@ -415,23 +534,33 @@ fun installBoot(
     if (bootFile != null) {
         val downloadsDir =
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        cmd += " -o $downloadsDir"
+        cmd += " -o ${shellQuote(downloadsDir.absolutePath)}"
     }
 
-    partition?.let { part ->
-        cmd += " --partition $part"
+    if (bootFile == null) {
+        partition?.let { part ->
+            cmd += " --partition ${shellQuote(part)}"
+        }
     }
 
-    val result = flashWithIO("${getKsuDaemonPath()} $cmd", onStdout, onStderr)
+    var rmvrChanged = false
+    val stdout: (String) -> Unit = { line ->
+        if (useVendorBootRmvr && line.contains("SAKISU_RMVR_CHANGED=1")) {
+            rmvrChanged = true
+        }
+        onStdout(line)
+    }
+    val result = flashWithIO("${getKsuDaemonPath()} $cmd", stdout, onStderr)
     Log.i("KernelSU", "install boot result: ${result.isSuccess}")
 
     bootFile?.delete()
     lkmFile?.delete()
 
-    // if boot uri is empty, it is direct install, when success, we should show reboot button
-    onFinish(bootUri == null && result.isSuccess, result.code)
+    val shouldOfferReboot = bootUri == null && result.isSuccess &&
+        (!useVendorBootRmvr || !ota && rmvrChanged)
+    onFinish(shouldOfferReboot, result.code)
 
-    if (bootUri == null && result.isSuccess) {
+    if (bootUri == null && result.isSuccess && !useVendorBootRmvr) {
         install()
     }
 
@@ -469,6 +598,29 @@ suspend fun getSupportedKmis(): List<String> = withSharedRootShell { shell ->
     val cmd = "boot-info supported-kmis"
     val out = shell.newJob().add("${getKsuDaemonPath()} $cmd").to(ArrayList(), null).exec().out
     out.filter { it.isNotBlank() }.map { it.trim() }
+}
+
+suspend fun classifyBootImage(uri: Uri): BootImageKind? = withContext(Dispatchers.IO) {
+    var image: File? = null
+    try {
+        val tempImage = File.createTempFile("sakisu-boot-classify-", ".img", ksuApp.cacheDir)
+        image = tempImage
+        ksuApp.contentResolver.openInputStream(uri)?.use { input ->
+            tempImage.outputStream().use { output -> input.copyTo(output) }
+        } ?: return@withContext null
+
+        withSharedRootShell { shell ->
+            val command = "boot-info classify-image ${shellQuote(tempImage.absolutePath)}"
+            parseBootImageKind(ShellUtils.fastCmd(shell, "${getKsuDaemonPath()} $command"))
+        }
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Throwable) {
+        Log.w(TAG, "classify boot image failed", error)
+        null
+    } finally {
+        image?.delete()
+    }
 }
 
 suspend fun isAbDevice(): Boolean = withSharedRootShell { shell ->
