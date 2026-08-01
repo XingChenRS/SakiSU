@@ -12,11 +12,11 @@ use crate::{
         profile, sepolicy, su, sulog, susfs, uapi, umount_config, utils,
     },
     apk_sign, assets,
-    boot_patch::{BootPatchArgs, BootRestoreArgs},
+    boot_patch::{BootPatchArgs, BootRestoreArgs, VendorBootRmvrArgs},
     defs,
 };
 
-/// KernelSU userspace cli
+/// SakiSU userspace CLI
 #[derive(Parser, Debug)]
 #[command(author, version = defs::FULL_VERSION, about, long_about = None)]
 struct Args {
@@ -26,7 +26,7 @@ struct Args {
 
 #[derive(clap::Subcommand, Debug)]
 enum Commands {
-    /// Manage KernelSU modules
+    /// Manage SakiSU modules
     Module {
         #[command(subcommand)]
         command: Module,
@@ -92,16 +92,16 @@ enum Commands {
         params: Vec<String>,
     },
 
-    /// Install KernelSU userspace component to system
+    /// Install the SakiSU userspace component to the system
     Install {
         #[arg(long, default_value = None)]
         libadbroot: Option<PathBuf>,
     },
 
-    /// Unload KernelSU kernel module (LKM Only)
+    /// Unload the SakiSU kernel module (LKM only)
     Unload,
 
-    /// Uninstall KernelSU modules and itself(LKM Only)
+    /// Uninstall SakiSU modules and SakiSU itself (LKM only)
     Uninstall {
         #[arg(long, default_value_t = String::from("com.sakisu.sakisu"))]
         package_name: String,
@@ -125,10 +125,13 @@ enum Commands {
         command: Feature,
     },
 
-    /// Patch boot or init_boot images to apply KernelSU
+    /// Patch boot or init_boot images to apply SakiSU
     BootPatch(BootPatchArgs),
 
-    /// Restore boot or init_boot images patched by KernelSU
+    /// Remove conflicting prebuilt modules from every vendor_boot ramdisk fragment
+    BootPatchRmvr(VendorBootRmvrArgs),
+
+    /// Restore boot or init_boot images patched by SakiSU
     BootRestore(BootRestoreArgs),
 
     /// Show boot information
@@ -183,6 +186,12 @@ enum UmountConfigOp {
 enum BootInfo {
     /// show current kmi version
     CurrentKmi,
+
+    /// classify an image by its boot header
+    ClassifyImage {
+        /// boot image path
+        boot: PathBuf,
+    },
 
     /// show supported kmi versions
     SupportedKmis,
@@ -810,11 +819,17 @@ pub fn run() -> Result<()> {
 
         Commands::BootPatch(boot_patch) => crate::boot_patch::patch(boot_patch),
 
+        Commands::BootPatchRmvr(rmvr) => crate::boot_patch::patch_rmvr(rmvr),
+
         Commands::BootInfo { command } => match command {
             BootInfo::CurrentKmi => {
                 let kmi = crate::boot_patch::get_current_kmi()?;
                 println!("{kmi}");
                 // return here to avoid printing the error message
+                return Ok(());
+            }
+            BootInfo::ClassifyImage { boot } => {
+                println!("{}", crate::boot_patch::classify_boot_image(&boot)?);
                 return Ok(());
             }
             BootInfo::SupportedKmis => {
