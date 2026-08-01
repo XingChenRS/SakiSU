@@ -1,7 +1,7 @@
 name: Crowdin Action
 
-# SakiSU wind-down: main is frozen and there are no further iterations, so we
-# no longer auto-sync strings to Crowdin on push. Manual runs only.
+# Translation synchronization remains manual until SakiSU-specific Crowdin
+# ownership and credentials are configured.
 on:
   workflow_dispatch:
 

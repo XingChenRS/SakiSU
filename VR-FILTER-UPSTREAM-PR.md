@@ -1,5 +1,10 @@
 # kernel: add init_module filter to block the vendor "vr" module
 
+> Historical PR record: this proposal was submitted as
+> [ReSukiSU/ReSukiSU#319](https://github.com/ReSukiSU/ReSukiSU/pull/319).
+> It is retained for traceability; current SakiSU development also provides a
+> separate vendor_boot rmvr path for `vr.ko` and `vklp.ko`.
+
 ## Summary
 
 Add a self-contained arm64 kernel filter for affected vivo/iQOO GKI devices

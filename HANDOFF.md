@@ -1,4 +1,10 @@
-# SakiSU 项目收手与交接
+# SakiSU 项目收手与交接（历史记录）
+
+> 本文记录 2026-07 的停更决定，已被 **2026-08-01 恢复维护** 的决定取代。
+> 当时准备的运行时模块过滤补丁后来提交为
+> [ReSukiSU/ReSukiSU#319](https://github.com/ReSukiSU/ReSukiSU/pull/319)；当前 SakiSU
+> 选择保留动态 vermagic，并恢复独立 vendor_boot rmvr 路线。下文保持原貌用于追溯，
+> 不再作为活动开发或发布说明。
 
 > 这是停止迭代后的存档说明：记录最终版本、独有改动、构建边界，以及
 > `vr.ko` 上游 PR 的交付方式。
@@ -19,7 +25,7 @@
 | 历史上游基线 | 见 [`docs/archive/UPSTREAM-BASELINE.md`](docs/archive/UPSTREAM-BASELINE.md)（仅存档，不再刷新） |
 | 主题 | vivo / iQOO GKI 适配（vermagic、`vr.ko` 拦截） |
 
-工作区（`Desktop\sakisu\`）不是 git monorepo，真正的仓库在 `ReSukiSU/` 子目录。目录职责见根 [`README.md`](../README.md)。
+工作区（`Desktop\sakisu\`）不是 git monorepo，真正的仓库在 `ReSukiSU/` 子目录。目录职责见根 [`README.md`](README.md)。
 
 ---
 

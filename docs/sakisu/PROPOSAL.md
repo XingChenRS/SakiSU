@@ -1,5 +1,7 @@
 # PROPOSAL — 转向重构提案 v1
 
+> **历史文档：** 本提案记录 2026-04-29 的阶段性取舍，已被 2026-08-01 恢复维护后的 [VENDOR-ADAPTATIONS.md](VENDOR-ADAPTATIONS.md) 取代；其中“不再走冷移除”等结论不再约束当前 vendor_boot rmvr 实现。
+
 > 状态：**v1 — 已纳入维护者决策**（2026-04-29）
 > 基线：[VISION.md](VISION.md)
 > 替换：v0 草案（已清理）；v0 §6 的 3 个待回答问题已在本版 §6 落地

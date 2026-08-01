@@ -2,59 +2,52 @@
 
 <img align="right" src="docs/SakiSU_blue.svg" width="220px" alt="SakiSU Icon">
 
-**简体中文** | [English](docs/README.md) | [vivo/iQOO 适配教程](docs/zh/vivo.md)
+**简体中文** | [English](docs/README.md) | [vivo/iQOO 适配说明](docs/zh/vivo.md)
 
-SakiSU 是基于 [ReSukiSU](https://github.com/ReSukiSU/ReSukiSU) 的下游分支，保留 KernelSU/SukiSU 系 root 管理、模块系统和 App Profile，并重点补充 vivo/iQOO 设备上的内核级 root 适配。
+SakiSU 是基于 [ReSukiSU](https://github.com/ReSukiSU/ReSukiSU) 的独立下游分支，保留 KernelSU/SukiSU 系 root 管理、模块系统和 App Profile，并维护 SakiSU 自己的设备兼容、签名与发布策略。
 
 ## 项目状态
 
-**SakiSU 已于 2026-07-26 停止迭代。** 仓库保留最后一轮
-`v4.2.0-sakisu.1` Release，不再自动跟进上游，也不再从 `main` 的普通
-推送触发构建或发布。
+**SakiSU 已于 2026-08-01 恢复维护。** 项目保留上游来源与致谢，但不再承诺自动同步 ReSukiSU；上游改动会经过选择性审计后再引入，SakiSU 可以采用不同实现路线。
 
-- 运行时 vermagic fallback 已由 ReSukiSU 上游原生实现。
-- `vr.ko` 加载拦截已整理为不含 SakiSU 品牌改动的独立上游补丁，待维护者提交给
-  ReSukiSU。
-- 既有 `v4.2.0-sakisu.1` Release 按收手决定原样保留；后续 Release workflow
-  只发布 Manager APK，不再单独发布 ksud CLI。ksud 仍作为 Manager 的内部组件
-  构建和打包。
-
-收手背景、最终分支状态和上游 PR 交接见 [HANDOFF.md](HANDOFF.md)。
+- 标准 `boot` / `init_boot` 修补继续使用单一通用 LKM，并由 `ksuinit` 在 `init_module` 阶段动态适配 vermagic。
+- 选择或导入 `vendor_boot` 时，Manager 会按镜像 header 精确识别并进入独立 rmvr 流程，遍历全部 vendor ramdisk fragment，移除存在的 `vr.ko`、`vklp.ko` 及对应文本索引引用；该流程不会注入 KernelSU LKM，也不会修改 KSU/ADB 配置。
+- SakiSU 正式 Manager 的证书信息以 `kernel/manager/manager_sign.h` 为唯一真值。`main` 与 tag 构建必须使用匹配的长期生产证书，最终 APK 还会再次校验证书摘要。
+- 历史 `v4.2.0-sakisu.1` 的 APK 实际使用生产证书，但该 tag 中 Manager 的旧 UI 常量会误报“非官方”；修复已进入后续主线，新版本不得复用或移动旧 tag。
 
 ## 重点功能
 
-- KernelSU/SukiSU 系内核级 `su` 与 root 授权管理。
-- 模块系统、App Profile、SuSFS/tracepoint 等上游能力。
-- **vivo/iQOO 兼容**：运行时 vermagic 适配 + 内核 vr.ko 拦截，单一标准 LKM。
-- 构建工作流保留用于必要的手动验证，但不再随分支推送自动运行。
+- 内核级 `su` 与 root 授权管理。
+- 模块系统、App Profile、SuSFS/tracepoint 等继承能力。
+- 运行时 vermagic 自动适配，不恢复 `_vivo` LKM 或构建期硬编码 vermagic。
+- vendor_boot rmvr：精确删除 `vr` / `vklp` 预置模块，兼容 vendor_boot v3、v4 和 v4 多 fragment。
+- 正式签名闭环：生产 keystore、内核信任值、Manager 自检和最终 APK 证书保持一致。
 
-## vivo/iQOO 快速说明
+## vendor_boot rmvr 使用方式
 
-SakiSU 为 vivo/iQOO 设备提供自动化兼容：
+在 Manager 的安装页选择 `vendor_boot` 分区，或选择一个 header 为 vendor_boot 的镜像文件。Manager 会自动调用独立 rmvr 命令；选择普通 boot/init_boot 时仍走标准 LKM 修补流程。
 
-- **运行时 vermagic 适配**：ksuinit 在模块加载失败时自动读取内核日志并修正 vermagic 后重试。
-- **内核 vr.ko 拦截**：通过 arm64 `init_module`/`finit_module` syscall hook 精确阻止 `vr` 模块加载，无需修改 vendor_boot。
-- **单一标准 LKM**：所有设备使用相同 KernelSU 模块，无需 `_vivo` 变体。
+rmvr 是对 vendor_boot 的写入操作。直接刷写前会在 `/data/adb/ksu/` 按原镜像 SHA-1 保存 `sakisu_vendor_boot_backup_*.img`，仍建议另行保留出厂镜像并确认分区和槽位。若目标模块及对应索引引用均不存在，SakiSU 会报告无需清理并保持镜像内容不变；清理非活动槽不会自动激活该槽。
 
-兼容逻辑全自动，无需任何开关：用 Manager 修补 `init_boot.img`（选任意标准 KMI）并刷入即可。
+## 签名迁移说明
 
-完整背景、风险说明和教程见 [docs/zh/vivo.md](docs/zh/vivo.md)。
+旧版临时 CI 证书与当前 SakiSU 生产证书不同，Android 不允许不同证书直接覆盖安装，已经运行的旧内核也不会自动信任新证书。迁移时请先用旧的已授权 Manager 配置 Dynamic Manager，或先刷入信任当前生产证书的新 SakiSU 内核/LKM，再安装正式 Manager。
 
 ## 文档
 
-- [中文文档](docs/zh/README.md)
 - [English documentation](docs/README.md)
-- [vivo/iQOO 适配教程](docs/zh/vivo.md)
-- [vivo/iQOO compatibility guide](docs/vivo.md)
-- [vivo 实现记录](DEVLOG-VIVO.md)
-- [项目收手与上游 PR 交接](HANDOFF.md)
+- [中文文档](docs/zh/README.md)
+- [vivo/iQOO 适配说明](docs/zh/vivo.md)
+- [SakiSU 产品与工程原则](docs/sakisu/README.md)
+- [历史停更交接记录](HANDOFF.md)
 
 ## 鸣谢
 
-- [ReSukiSU/ReSukiSU](https://github.com/ReSukiSU/ReSukiSU)：当前上游基底。
-- [SukiSU-Ultra/SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra)：上游血统。
+- [ReSukiSU/ReSukiSU](https://github.com/ReSukiSU/ReSukiSU)：当前上游来源。
+- [SukiSU-Ultra/SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra)：上游血统与兼容来源。
 - [KernelSU](https://github.com/tiann/KernelSU)：内核级 root 方案基础。
-- 感谢参与 vivo/iQOO 反 root 研究与验证的社区贡献者。
+
+仓库和 Manager 中保留的赞助入口用于支持上述上游作者与基础项目；SakiSU 当前没有独立募资入口。
 
 ## 许可证
 

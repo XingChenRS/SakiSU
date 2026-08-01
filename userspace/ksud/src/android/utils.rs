@@ -228,7 +228,7 @@ pub fn uninstall(package_name: &str) -> Result<()> {
         out_name: None,
         out: None,
     })?;
-    println!("- Uninstall KernelSU manager..");
+    println!("- Uninstall SakiSU Manager..");
     Command::new("pm")
         .args(["uninstall", package_name])
         .spawn()?;

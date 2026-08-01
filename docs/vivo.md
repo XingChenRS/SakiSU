@@ -1,108 +1,26 @@
-# vivo/iQOO Compatibility Guide
+# vivo/iQOO compatibility
 
-[简体中文](zh/vivo.md) | [Back to docs](README.md)
+SakiSU keeps runtime vermagic adaptation for the standard LKM path and restores a separate vendor_boot rmvr path for devices that preload conflicting vendor modules.
 
-This page explains vivo/iQOO root restrictions in the GKI era and SakiSU's current **fully automatic** vivo solution, plus how to use it.
+## Two independent paths
 
-> **In one line**: vivo/iQOO support is now fully automatic. Patch `init_boot.img` with Manager (pick any standard KMI, no `_vivo` suffix), flash it, done. No switch or special step is required.
+1. Patch `boot` or `init_boot` to install the standard `kernelsu.ko`. If the first `init_module` call reports a vermagic mismatch, `ksuinit` reads the required value from the kernel log, updates the module in memory, and retries. There is no `_vivo` LKM build.
+2. Select the `vendor_boot` partition or import a vendor_boot image to run rmvr. SakiSU verifies the vendor boot header, traverses every ramdisk fragment, and removes existing `vr.ko` / `vklp.ko` files and exact references in supported text module indexes. This path never installs KernelSU or edits KSU/ADB ramdisk settings.
 
-## Read This First
+The existing exact runtime `vr` load filter remains a fallback in SakiSU. Cold removal is still useful when a preloaded module interferes before the runtime path is available.
 
-- Unlocking the bootloader and flashing `boot` / `init_boot` can brick the device or wipe data. Back up the original partitions before patching.
-- Do not mix images from different firmware versions.
-- A bad image can affect normal boot, recovery, and fastbootd. Keep the original image ready and reflash it if needed.
-- Early 3.x/4.x vivo anti-root implementations embedded in vendor kernels require kernel reversing and are outside SakiSU's current scope.
+## Recommended procedure
 
-## Background: vivo root Restrictions
+1. Back up stock boot, init_boot, and vendor_boot images for the active slot.
+2. In SakiSU Manager, patch or install to the normal boot/init_boot partition first.
+3. Return to Install, select `vendor_boot`, and run the operation again to perform rmvr. For file patching, select the vendor_boot image; the header is detected automatically.
+4. Review the flash log. A no-match result is a successful no-op and is not flashed automatically.
+5. Reboot only after both required operations have completed successfully.
 
-Early vivo/iQOO anti-root logic was embedded in the vendor kernel, which was hard to deal with and usually required kernel reversing. After the GKI standard arrived, vendor-private drivers no longer belong in the generic kernel, so vivo moved this capability into vendor modules inside `vendor_boot` — the key one being the anti-root module `vr.ko`.
+## Risks and recovery
 
-`vendor_boot` provides vendor drivers, mount config, and init scripts to the generic kernel as a ramdisk. At boot, vendor init loads these modules per its manifest. Once loaded, `vr.ko` hides itself, so it usually cannot be seen in the loaded-module list after boot.
+Vendor boot layouts vary by device. SakiSU supports a single ramdisk (vendor boot v3 and table-less layouts) and all fragments in a v4 ramdisk table, but a malformed or non-CPIO fragment causes a fail-closed error. Keep a stock image and a known recovery/fastbootd path. Never flash an output to a partition whose header was not recognized as vendor_boot.
 
-## SakiSU's Fully Automatic Solution
+## Signing migration
 
-SakiSU replaces the old "cold-edit `vendor_boot`" approach with two runtime mechanisms. Both are handled automatically by the built-in KernelSU LKM — **no switch and no manual step are required**.
-
-### Runtime vermagic Adaptation
-
-On a vivo official kernel, a plain GKI module fails to load because of a `vermagic` mismatch. The official kernel checks the `vermagic=` field in the module's ELF `.modinfo` against its own embedded expected string and rejects the module if they differ. A sample expected string looks like:
-
-```text
-6.1.145-android14-11-maybe-dirty SMP preempt mod_unload modversions vivo aarch64
-```
-
-The `vivo` marker in it is what makes a plain GKI LKM unacceptable to the official kernel.
-
-SakiSU no longer ships a `_vivo`-suffixed variant per kernel at build time. Instead it adapts **at runtime**: when `ksuinit`'s first `init_module` call fails to load the KernelSU LKM, it reads the kernel log (`/dev/kmsg`), extracts the version magic the kernel requires, patches the in-memory module's `.modinfo`, and retries the load.
-
-As a result, **a single generic LKM works for every KMI**. Users **do not need to hand-pick a `_vivo` KMI** — just pick the standard KMI matching your kernel version.
-
-### Kernel `vr.ko` Interception
-
-The SakiSU kernel hooks the arm64 `init_module` and `finit_module` syscalls. For each module-load request it parses the ELF `.modinfo`, and when the module's internal name is exactly `vr` it returns success to the caller (pretending the module loaded) **without actually loading it**. Vendor init believes `vr.ko` loaded, but it is not present in the kernel, and the anti-root module is silently blocked.
-
-This requires that the **KernelSU LKM loads before `vr.ko`**. SakiSU's KernelSU is injected via `init_boot` and is ready before vendor modules load, so the syscall hook is in place when the `vr.ko` load request arrives.
-
-Because interception happens at runtime, SakiSU **no longer cold-removes `vr.ko` from `vendor_boot`** and **does not modify the `vendor_boot` partition** at all. You only need to touch `init_boot`.
-
-## Manager Workflow
-
-### Prepare
-
-1. Confirm the bootloader is unlocked.
-2. Get an `init_boot.img` matching your current firmware version (a few older devices use `boot.img`).
-3. Back up the original `boot`, `init_boot`, `vbmeta`, etc.
-4. Install SakiSU Manager.
-
-### Patch and Flash `init_boot`
-
-1. Open SakiSU Manager and go to the install page.
-2. Choose file patching and select the `init_boot.img` for your current firmware. A few older devices may use `boot.img`.
-3. If a KMI dialog appears, pick the **standard KMI matching your kernel version — no `_vivo` suffix needed**.
-4. Wait for the patched image output.
-5. Reboot to the bootloader and flash the output image back to the corresponding partition:
-
-```text
-fastboot flash init_boot kernelsu_patched_xxx.img
-fastboot reboot
-```
-
-Use `boot` instead of `init_boot` only on devices that actually use the `boot` partition. Flashing an image from the wrong firmware version may not boot.
-
-That's it. There is no separate `vendor_boot` step and no more "two-step flashing". After boot, vermagic adaptation and `vr.ko` interception take effect automatically.
-
-## Manual Study of `init_boot` (Optional)
-
-If you want to understand the patch flow by hand, you can use the official Linux `magiskboot`. The Android Magisk App bundles `libmagiskboot.so`, which is the magiskboot implementation usable in Linux/Android environments.
-
-Basic flow:
-
-```text
-./magiskboot unpack init_boot.img
-# inspect / replace init resources in the ramdisk
-./magiskboot repack init_boot.img
-```
-
-`vr.ko` is handled entirely at runtime by the kernel, so **no cold removal in any image is needed**. The manual flow is only suggested for verification and research; normal users should use SakiSU Manager.
-
-## FAQ
-
-### Do I need to remove `vr.ko` manually?
-
-No. The SakiSU kernel intercepts `vr.ko` load requests at runtime and does not touch the `vendor_boot` partition.
-
-### Do I need to pick a `_vivo` KMI?
-
-No. Runtime vermagic adaptation lets a single generic LKM work for every KMI. Just pick the standard KMI matching your kernel version.
-
-### The official kernel fails to load the KernelSU LKM
-
-First confirm the flashed image matches your current firmware version. Normally `ksuinit` reads the required vermagic from the kernel log after the first failure and retries automatically, so no manual action is usually needed.
-
-### It doesn't boot after flashing
-
-Reflash the original image to recover. Common causes include version mismatch, flashing the wrong partition, or extra boot-chain checks on the device itself.
-
-### Can APatch, SKRoot, etc. coexist?
-
-SakiSU only blocks `vr.ko` from loading at runtime and does not actively prevent you from exploring kernel-level solutions like APatch or SKRoot, but each device and kernel version still needs separate verification.
+If an older Manager used an ephemeral CI certificate, configure Dynamic Manager while that Manager is still authorized, or install a new SakiSU kernel/LKM that trusts the production certificate before replacing the APK. Android and an already-running old kernel cannot automatically accept a different signing certificate.

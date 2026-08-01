@@ -1,5 +1,5 @@
 name: Bug report / 错误报告
-description: Create a report to help us improve KernelSU / 创建报告以帮助我们改进 KernelSU
+description: Create a report to help us improve SakiSU / 创建报告以帮助我们改进 SakiSU
 labels: [bug]
 
 body:
@@ -13,7 +13,7 @@ body:
           required: true
         - label: I have searched the issues and haven't found anything relevant / 我已搜索过 Issue 且未找到相关内容
           required: true
-        - label: I will upload bugreport file in KernelSU Manager - Settings - Report log / 我将在 KernelSU 管理器 - 设置 - 报告日志 中上传 bugreport 文件
+        - label: I will upload a bugreport from SakiSU Manager - Settings - Report log / 我将在 SakiSU 管理器 - 设置 - 报告日志 中上传 bugreport 文件
           required: true
         - label: I know how to reproduce the issue which may not be specific to my device / 我知道如何复现该问题，且该问题可能不局限于我的设备
           required: false
@@ -88,7 +88,7 @@ body:
       value: |
         - Device / 设备:
         - OS Version / 系统版本:
-        - KernelSU Version / KernelSU 版本:
+        - SakiSU Version / SakiSU 版本:
         - Kernel Version / 内核版本:
     validations:
       required: true

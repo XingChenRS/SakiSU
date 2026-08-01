@@ -1,30 +1,29 @@
-# sakisu 产品文档
+# SakiSU 产品与工程文档
 
-本目录是 SakiSU 的愿景、工程纪律与重构提案（由工作区 `sakisu/` 种子注入）。
-SakiSU 已于 2026-07-26 停止迭代，本目录仅作为历史设计记录，不再代表后续开发计划。
+本目录记录 SakiSU 的产品愿景、工程纪律和厂商适配决策。SakiSU 已于 2026-08-01 恢复维护，这些文档重新作为当前开发的约束与决策依据；带有“历史”说明的章节仍只用于追溯。
 
 ## 文档导航
 
-| 文件 | 职责 | 何时读 |
+| 文件 | 职责 | 何时阅读 |
 |---|---|---|
-| [VISION.md](VISION.md) | 历史产品愿景与硬约束 | 回顾设计时 |
-| [PRINCIPLES.md](PRINCIPLES.md) | 工程纪律（代码放置 / 隐蔽性 / 保守 patch） | 写代码前 |
-| [DECISION-TREE.md](DECISION-TREE.md) | 提权 4 阶段流水线 + 失败分类 + 回退兜底 | 设计编排层时 |
-| [PROPOSAL.md](PROPOSAL.md) | 历史重构提案（舍弃项 / 继承项 / 汲取点 / 启动清单） | 回顾决策时 |
-| [VENDOR-ADAPTATIONS.md](VENDOR-ADAPTATIONS.md) | 厂商适配记录（vivo vermagic 等） | 接入新厂商时 |
-| [TIMELINE.md](TIMELINE.md) | 历史方向反复的浓缩时间线（避坑用） | 想了解"为什么是这个方向"时 |
+| [VISION.md](VISION.md) | 产品愿景与硬约束 | 确认方向时 |
+| [PRINCIPLES.md](PRINCIPLES.md) | 工程纪律、代码放置、隐藏性和保守 patch 原则 | 写代码前 |
+| [DECISION-TREE.md](DECISION-TREE.md) | 提权阶段、失败分类与回退兜底 | 设计流程时 |
+| [PROPOSAL.md](PROPOSAL.md) | 历史重构提案和取舍记录 | 回顾决策时 |
+| [VENDOR-ADAPTATIONS.md](VENDOR-ADAPTATIONS.md) | 厂商适配边界，包括动态 vermagic 与 vendor_boot rmvr | 接入适配时 |
+| [TIMELINE.md](TIMELINE.md) | 历史方向变化的压缩时间线 | 追溯原因时 |
+
+## 当前实现边界
+
+- 标准 boot/init_boot 使用通用 LKM 与运行时 vermagic 修正。
+- vendor_boot 使用独立 rmvr 路径，精确删除 `vr` / `vklp`，不注入 LKM。
+- 不恢复 `_vivo` 构建产物和构建期硬编码 vermagic。
+- SakiSU 保持独立下游路线；上游改动只做选择性审计，不启用自动同步。
+- 正式 Manager 的生产证书以 `kernel/manager/manager_sign.h` 为唯一真值。
 
 ## 相关实现文档
 
-- [Archived upstream baseline](../archive/UPSTREAM-BASELINE.md)
-- [Archived upstream sync notes](../archive/SAKISU-UPSTREAM-SYNC.md)
+- [历史上游基线](../archive/UPSTREAM-BASELINE.md)
+- [历史上游同步说明](../archive/SAKISU-UPSTREAM-SYNC.md)
 - [vivo 实现笔记](../../DEVLOG-VIVO.md)
-- [用户教程（中文）](../zh/vivo.md)
-
-## 阅读顺序
-
-```
-VISION → PRINCIPLES → DECISION-TREE → PROPOSAL
-                                    ↑
-                          (TIMELINE 可作旁注)
-```
+- [中文用户说明](../zh/vivo.md)

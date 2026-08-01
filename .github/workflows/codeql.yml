@@ -1,7 +1,16 @@
 name: "CodeQL"
 
-# SakiSU wind-down: main is frozen; no auto-run on push/PR/schedule. Manual runs only.
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'manager/**'
+      - '.github/workflows/codeql.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'manager/**'
+      - '.github/workflows/codeql.yml'
   workflow_dispatch:
 
 jobs:
