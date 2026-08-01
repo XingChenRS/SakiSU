@@ -292,7 +292,12 @@ fn align_up(value: usize, alignment: usize) -> Result<usize> {
         .context("ELF alignment overflow")
 }
 
-fn write_elf64_word(buffer: &mut [u8], offset: usize, value: u64, little_endian: bool) -> Result<()> {
+fn write_elf64_word(
+    buffer: &mut [u8],
+    offset: usize,
+    value: u64,
+    little_endian: bool,
+) -> Result<()> {
     let end = offset.checked_add(8).context("ELF write overflow")?;
     let destination = buffer
         .get_mut(offset..end)
