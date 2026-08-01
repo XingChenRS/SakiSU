@@ -35,6 +35,14 @@ on:
     secrets:
       BOT_TOKEN:
         required: false
+      KEYSTORE:
+        required: false
+      KEYSTORE_PASSWORD:
+        required: false
+      KEY_ALIAS:
+        required: false
+      KEY_PASSWORD:
+        required: false
 
 jobs:
   generate-key:

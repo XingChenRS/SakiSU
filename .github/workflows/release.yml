@@ -11,6 +11,10 @@ jobs:
     uses: ./.github/workflows/build-manager.yml
     secrets:
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      KEYSTORE: ${{ secrets.KEYSTORE }}
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
   release:
     if: github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/v')
     needs:
