@@ -409,10 +409,17 @@ jobs:
             echo "$VERIFY_OUTPUT" | grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true'
             echo "$VERIFY_OUTPUT" | grep -q 'Verified using v3 scheme (APK Signature Scheme v3): false'
             echo "$VERIFY_OUTPUT" | grep -q 'Verified using v3.1 scheme (APK Signature Scheme v3.1): false'
+            if echo "$VERIFY_OUTPUT" | grep -q 'Verified using v3.2 scheme'; then
+              echo "$VERIFY_OUTPUT" | grep -q 'Verified using v3.2 scheme (APK Signature Scheme v3.2): false'
+            fi
             echo "$VERIFY_OUTPUT" | grep -q 'Verified using v4 scheme (APK Signature Scheme v4): false'
-            SIGNER_COUNT=$(echo "$VERIFY_OUTPUT" | grep -c 'Signer #[0-9][0-9]* certificate SHA-256 digest:')
+            SIGNER_COUNT=$(echo "$VERIFY_OUTPUT" | awk -F': ' '/^Number of signers:/ {print $2; exit}')
+            if [ -z "$SIGNER_COUNT" ]; then
+              SIGNER_COUNT=$(echo "$VERIFY_OUTPUT" | grep -c 'certificate SHA-256 digest:' || true)
+            fi
             test "$SIGNER_COUNT" -eq 1
-            APK_HASH=$(echo "$VERIFY_OUTPUT" | awk -F': ' '/Signer #1 certificate SHA-256 digest:/ {print tolower($2); exit}')
+            APK_HASH=$(echo "$VERIFY_OUTPUT" | awk -F': ' '/certificate SHA-256 digest:/ {print tolower($NF); exit}')
+            test -n "$APK_HASH"
             if [ "$APK_HASH" != "$EXPECTED_HASH" ]; then
               echo "::error::$APK was signed by $APK_HASH, expected $EXPECTED_HASH."
               exit 1
