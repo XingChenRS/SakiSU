@@ -1,4 +1,4 @@
-name: Build LKM for KernelSU
+name: Build LKM for SakiSU
 on:
   workflow_call:
     inputs:

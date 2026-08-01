@@ -7,31 +7,33 @@ on:
 
 jobs:
   build-manager:
+    if: github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/v')
     uses: ./.github/workflows/build-manager.yml
-    secrets: inherit
+    secrets:
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
   release:
+    if: github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/v')
     needs:
       - build-manager
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v8
-
       - name: Download Manager artifacts
         uses: actions/download-artifact@v8
         with:
           path: manager
-          pattern: "Manager-*"
+          pattern: "Manager-release"
           merge-multiple: true
 
       - name: Display structure of downloaded files
         run: ls -R
 
-      # SakiSU wind-down: we no longer publish the standalone ksud CLI as a
-      # release asset. ksud is still built and embedded inside the Manager APK;
-      # only the Manager APK is published, to avoid implying a CLI install path.
+      # ksud remains a Manager-internal payload. Release only the production
+      # Manager APKs; debug builds and standalone CLI binaries are not assets.
       - name: release
         uses: softprops/action-gh-release@v3
         with:
           files: |
             manager/*.apk
+          fail_on_unmatched_files: true

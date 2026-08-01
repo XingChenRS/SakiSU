@@ -1,11 +1,40 @@
-name: Build Manager
+name: Build SakiSU Manager
 
-# SakiSU wind-down: automatic builds on push (including `main`) are disabled;
-# there will be no further iterations. This workflow now runs only when invoked
-# manually (workflow_dispatch) or by the Release workflow (workflow_call).
 on:
+  push:
+    # Tag builds are invoked once by release.yml via workflow_call.
+    branches:
+      - '**'
+    paths:
+      - '.github/workflows/build-manager.yml'
+      - '.github/workflows/build-lkm.yml'
+      - '.github/workflows/ddk-lkm.yml'
+      - '.github/workflows/ksud.yml'
+      - '.github/workflows/ksuinit.yml'
+      - 'manager/**'
+      - 'kernel/**'
+      - 'uapi/**'
+      - 'userspace/**'
+      - 'repack_apk*.py'
+      - 'scripts/**'
+  pull_request:
+    paths:
+      - '.github/workflows/build-manager.yml'
+      - '.github/workflows/build-lkm.yml'
+      - '.github/workflows/ddk-lkm.yml'
+      - '.github/workflows/ksud.yml'
+      - '.github/workflows/ksuinit.yml'
+      - 'manager/**'
+      - 'kernel/**'
+      - 'uapi/**'
+      - 'userspace/**'
+      - 'repack_apk*.py'
+      - 'scripts/**'
   workflow_dispatch:
   workflow_call:
+    secrets:
+      BOT_TOKEN:
+        required: false
 
 jobs:
   generate-key:
@@ -14,7 +43,6 @@ jobs:
       expected_size: ${{ steps.extract.outputs.expected_size }}
       expected_hash: ${{ steps.extract.outputs.expected_hash }}
       is_production: ${{ steps.extract.outputs.is_production }}
-      is_ephemeral: ${{ steps.gen.outputs.is_ephemeral }}
       keystore: ${{ steps.gen.outputs.keystore }}
       keystore_password: ${{ steps.gen.outputs.keystore_password }}
       key_alias: ${{ steps.gen.outputs.key_alias }}
@@ -23,119 +51,66 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Materialize keystore
+      - name: Generate isolated build keystore
         id: gen
-        env:
-          PROD_KEYSTORE: ${{ secrets.KEYSTORE }}
-          PROD_STORE_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
-          PROD_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          PROD_KEY_PASS: ${{ secrets.KEY_PASSWORD }}
-          REQUIRE_PRODUCTION: ${{ github.ref == 'refs/heads/main' }}
         run: |
-          if [ -n "$PROD_KEYSTORE" ] && [ -n "$PROD_STORE_PASS" ] && [ -n "$PROD_KEY_ALIAS" ] && [ -n "$PROD_KEY_PASS" ]; then
-            echo "::notice::Using long-lived keystore from repository secrets."
-            echo "$PROD_KEYSTORE" | base64 -d > pr-key.jks
-            echo "is_ephemeral=false" >> $GITHUB_OUTPUT
-            echo "extract_key_alias=" >> $GITHUB_OUTPUT
-            echo "keystore=" >> $GITHUB_OUTPUT
-            echo "keystore_password=" >> $GITHUB_OUTPUT
-            echo "key_password=" >> $GITHUB_OUTPUT
-            echo "key_alias=" >> $GITHUB_OUTPUT
-          else
-            if [ "$REQUIRE_PRODUCTION" = "true" ]; then
-              echo "::error::Production branches (main/dev) require repository secrets KEYSTORE / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD matching EXPECTED_*_SAKISU in kernel/manager/manager_sign.h. Ephemeral PR signing is not allowed."
-              exit 1
-            fi
-            echo "::notice::No complete KEYSTORE secret set; generating an ephemeral key for this run."
-            KEYSTORE_PASSWORD=$(openssl rand -hex 32)
-            KEY_PASSWORD=$(openssl rand -hex 32)
-            echo "is_ephemeral=true" >> $GITHUB_OUTPUT
-            echo "keystore_password=$KEYSTORE_PASSWORD" >> $GITHUB_OUTPUT
-            echo "key_password=$KEY_PASSWORD" >> $GITHUB_OUTPUT
-            echo "key_alias=pr-key" >> $GITHUB_OUTPUT
-            echo "extract_key_alias=pr-key" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          KEYSTORE_PASSWORD=$(openssl rand -hex 32)
+          KEY_PASSWORD=$(openssl rand -hex 32)
+          echo "keystore_password=$KEYSTORE_PASSWORD" >> $GITHUB_OUTPUT
+          echo "key_password=$KEY_PASSWORD" >> $GITHUB_OUTPUT
+          echo "key_alias=ci-key" >> $GITHUB_OUTPUT
 
-            keytool -genkeypair \
-              -alias pr-key \
-              -keyalg RSA -keysize 2048 \
-              -validity 1 \
-              -storepass "$KEYSTORE_PASSWORD" \
-              -keypass "$KEY_PASSWORD" \
-              -dname "CN=SakiSU CI Build" \
-              -storetype JKS \
-              -keystore pr-key.jks
+          keytool -genkeypair \
+            -alias ci-key \
+            -keyalg RSA -keysize 2048 \
+            -validity 1 \
+            -storepass "$KEYSTORE_PASSWORD" \
+            -keypass "$KEY_PASSWORD" \
+            -dname "CN=SakiSU CI Build" \
+            -storetype JKS \
+            -keystore ci-key.jks
 
-            echo "keystore=$(base64 -w 0 pr-key.jks)" >> $GITHUB_OUTPUT
-          fi
+          echo "keystore=$(base64 -w 0 ci-key.jks)" >> $GITHUB_OUTPUT
 
-      - name: Extract certificate hash and size
+      - name: Record CI certificate and build class
         id: extract
         env:
           STORE_PASS: ${{ steps.gen.outputs.keystore_password }}
-          PROD_STORE_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ steps.gen.outputs.extract_key_alias }}
-          PROD_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          IS_EPHEMERAL: ${{ steps.gen.outputs.is_ephemeral }}
-          REQUIRE_PRODUCTION: ${{ github.ref == 'refs/heads/main' }}
+          KEY_ALIAS: ${{ steps.gen.outputs.key_alias }}
+          IS_PRODUCTION_REF: ${{ github.ref == 'refs/heads/main' || github.ref_type == 'tag' }}
         run: |
-          STORE_PASSWORD="$STORE_PASS"
-          if [ -z "$STORE_PASSWORD" ]; then
-            STORE_PASSWORD="$PROD_STORE_PASS"
-          fi
-          CERT_ALIAS="$KEY_ALIAS"
-          if [ -z "$CERT_ALIAS" ]; then
-            CERT_ALIAS="$PROD_KEY_ALIAS"
-          fi
+          set -euo pipefail
 
-          # Export DER certificate
           keytool -exportcert \
-            -alias "$CERT_ALIAS" \
-            -keystore pr-key.jks \
-            -storepass "$STORE_PASSWORD" \
-            -file pr-cert.der
+            -alias "$KEY_ALIAS" \
+            -keystore ci-key.jks \
+            -storepass "$STORE_PASS" \
+            -file ci-cert.der
 
-          # Calculate size in hex
-          SIZE_DEC=$(stat -c%s pr-cert.der)
+          SIZE_DEC=$(stat -c%s ci-cert.der)
           SIZE_HEX=$(printf '0x%x' "$SIZE_DEC")
+          HASH=$(sha256sum ci-cert.der | awk '{print $1}')
 
-          # Calculate SHA256 hash
-          HASH=$(sha256sum pr-cert.der | awk '{print $1}')
-          OFFICIAL_SIZE=$(awk '/EXPECTED_SIZE_SAKISU/ {print $3; exit}' kernel/manager/manager_sign.h)
-          OFFICIAL_HASH=$(awk -F'"' '/EXPECTED_HASH_SAKISU/ {print $2; exit}' kernel/manager/manager_sign.h)
-
-          echo "Certificate size: $SIZE_HEX ($SIZE_DEC bytes)"
-          echo "Certificate hash: $HASH"
-          echo "Official SakiSU size/hash: $OFFICIAL_SIZE / $OFFICIAL_HASH"
-
-          if [ "$SIZE_HEX" = "$OFFICIAL_SIZE" ] && [ "$HASH" = "$OFFICIAL_HASH" ]; then
-            echo "::notice::Build keystore matches the built-in SakiSU certificate (production)."
+          if [ "$IS_PRODUCTION_REF" = "true" ]; then
+            echo "::notice::Production ref: intermediate APKs use an isolated key; only the protected final repack may use the SakiSU production key."
             echo "expected_size=" >> $GITHUB_OUTPUT
             echo "expected_hash=" >> $GITHUB_OUTPUT
             echo "is_production=true" >> $GITHUB_OUTPUT
           else
-            if [ "$REQUIRE_PRODUCTION" = "true" ]; then
-              echo "::error::The production branch (main) requires the signing certificate to match EXPECTED_SIZE_SAKISU / EXPECTED_HASH_SAKISU. Update repository KEYSTORE secrets or manager_sign.h."
-              exit 1
-            fi
-            echo "::warning::Non-official signing certificate; marking as PR/debug build."
+            echo "::notice::Non-production ref: binding the ephemeral Manager and LKM identities for this run."
             echo "expected_size=$SIZE_HEX" >> $GITHUB_OUTPUT
             echo "expected_hash=$HASH" >> $GITHUB_OUTPUT
             echo "is_production=false" >> $GITHUB_OUTPUT
-          fi
-
-          if [ "$IS_EPHEMERAL" = "true" ] && [ "$REQUIRE_PRODUCTION" = "true" ]; then
-            echo "::error::Ephemeral signing is forbidden on production branches."
-            exit 1
           fi
 
   build-lkm:
     needs: generate-key
     uses: ./.github/workflows/build-lkm.yml
     with:
-      # Empty when is_production=true (official SakiSU cert); only set for ephemeral/debug.
+      # Empty on production refs; only non-production Manager/LKM pairs share the CI cert.
       expected_pr_build_size: ${{ needs.generate-key.outputs.expected_size || '' }}
       expected_pr_build_hash: ${{ needs.generate-key.outputs.expected_hash || '' }}
-    secrets: inherit
 
   build-ksuinit:
     uses: ./.github/workflows/ksuinit.yml
@@ -169,8 +144,6 @@ jobs:
 
           - manager_type: "normal"
             build_type: "release"
-          - manager_type: "normal"
-            build_type: "debug"
     defaults:
       run:
         working-directory: ./manager
@@ -207,28 +180,19 @@ jobs:
           PR_KEYSTORE_PASSWORD: ${{ needs.generate-key.outputs.keystore_password }}
           PR_KEY_ALIAS: ${{ needs.generate-key.outputs.key_alias }}
           PR_KEY_PASSWORD: ${{ needs.generate-key.outputs.key_password }}
-          PROD_KEYSTORE: ${{ secrets.KEYSTORE }}
-          PROD_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          PROD_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          PROD_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [ -n "$PROD_KEYSTORE" ] && [ -n "$PROD_KEYSTORE_PASSWORD" ] && [ -n "$PROD_KEY_ALIAS" ] && [ -n "$PROD_KEY_PASSWORD" ]; then
-            echo "$PROD_KEYSTORE" | base64 -d > sign-key.jks
-            {
-              echo KEYSTORE_PASSWORD="$PROD_KEYSTORE_PASSWORD"
-              echo KEY_ALIAS="$PROD_KEY_ALIAS"
-              echo KEY_PASSWORD="$PROD_KEY_PASSWORD"
-              echo KEYSTORE_FILE='sign-key.jks'
-            } >> gradle.properties
-          else
-            echo "$PR_KEYSTORE" | base64 -d > sign-key.jks
-            {
-              echo KEYSTORE_PASSWORD="$PR_KEYSTORE_PASSWORD"
-              echo KEY_ALIAS="$PR_KEY_ALIAS"
-              echo KEY_PASSWORD="$PR_KEY_PASSWORD"
-              echo KEYSTORE_FILE='sign-key.jks'
-            } >> gradle.properties
+          set -euo pipefail
+          if [ -z "$PR_KEYSTORE" ] || [ -z "$PR_KEYSTORE_PASSWORD" ] || [ -z "$PR_KEY_ALIAS" ] || [ -z "$PR_KEY_PASSWORD" ]; then
+            echo "::error::Intermediate CI signing inputs are incomplete."
+            exit 1
           fi
+          echo "$PR_KEYSTORE" | base64 -d > sign-key.jks
+          {
+            echo KEYSTORE_PASSWORD="$PR_KEYSTORE_PASSWORD"
+            echo KEY_ALIAS="$PR_KEY_ALIAS"
+            echo KEY_PASSWORD="$PR_KEY_PASSWORD"
+            echo KEYSTORE_FILE='sign-key.jks'
+          } >> gradle.properties
       
       - name: Setup Java
         uses: actions/setup-java@v5
@@ -261,7 +225,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.determine.outputs.title }}-gradle-${{ matrix.build_type }}
+          name: INTERNAL-DO-NOT-INSTALL-${{ steps.determine.outputs.title }}-${{ matrix.build_type }}
+          retention-days: 1
           path: |
             manager/app/build/outputs/apk/release/*.apk
             manager/app/build/outputs/apk/debug/*.apk
@@ -277,6 +242,8 @@ jobs:
     if: always() && needs.build-manager.result == 'success' && needs.build-ksud.result == 'success'
     needs: [build-manager, build-ksud, generate-key]
     runs-on: ubuntu-latest
+    environment:
+      name: ${{ needs.generate-key.outputs.is_production == 'true' && 'production-signing' || 'ci' }}
     strategy:
       fail-fast: false
       matrix:
@@ -285,8 +252,6 @@ jobs:
             build_type: "release"
           - manager_type: "normal"
             build_type: "release"
-          - manager_type: "normal"
-            build_type: "debug"
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -305,8 +270,8 @@ jobs:
       - name: Download artifact
         uses: actions/download-artifact@v8
         with:
-            name: ${{ steps.determine.outputs.title }}-gradle-${{ matrix.build_type }}
-            path: artifacts/${{ steps.determine.outputs.title }}-gradle-${{ matrix.build_type }}
+            name: INTERNAL-DO-NOT-INSTALL-${{ steps.determine.outputs.title }}-${{ matrix.build_type }}
+            path: artifacts/INTERNAL-${{ steps.determine.outputs.title }}-${{ matrix.build_type }}
       
       - name: Download Manager-internal arm64 ksud
         uses: actions/download-artifact@v8
@@ -329,7 +294,7 @@ jobs:
       - name: Embed Manager-internal ksud artifacts
         run: |
           mkdir -p manager/app/build/outputs/apk/${{ matrix.build_type }}
-          APKS=$(find artifacts/${{ steps.determine.outputs.title }}-gradle-${{ matrix.build_type }} -type f -name "*.apk")
+          APKS=$(find artifacts/INTERNAL-${{ steps.determine.outputs.title }}-${{ matrix.build_type }} -type f -name "*.apk")
           APKS=$(echo "$APKS" | tr '\n' ' ')
           test -n "$APKS"
           cp -f $APKS manager/app/build/outputs/apk/${{ matrix.build_type }}/
@@ -347,34 +312,59 @@ jobs:
           cp -f "$ARMV7_KSUD" target/armv7-linux-androideabi/release/ksud
           cp -f "$X86_64_KSUD" target/x86_64-linux-android/release/ksud
 
-      - name: Prepare signing inputs
-        if: ${{ github.ref == 'refs/heads/main' || github.ref_type == 'tag' }}
+      - name: Verify signing identity, repack, and clean credentials
         env:
           PR_KEYSTORE: ${{ needs.generate-key.outputs.keystore }}
           PR_KEYSTORE_PASSWORD: ${{ needs.generate-key.outputs.keystore_password }}
           PR_KEY_ALIAS: ${{ needs.generate-key.outputs.key_alias }}
           PR_KEY_PASSWORD: ${{ needs.generate-key.outputs.key_password }}
-          PROD_KEYSTORE: ${{ secrets.KEYSTORE }}
-          PROD_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          PROD_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          PROD_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          PROD_KEYSTORE: ${{ needs.generate-key.outputs.is_production == 'true' && secrets.KEYSTORE || '' }}
+          PROD_KEYSTORE_PASSWORD: ${{ needs.generate-key.outputs.is_production == 'true' && secrets.KEYSTORE_PASSWORD || '' }}
+          PROD_KEY_ALIAS: ${{ needs.generate-key.outputs.is_production == 'true' && secrets.KEY_ALIAS || '' }}
+          PROD_KEY_PASSWORD: ${{ needs.generate-key.outputs.is_production == 'true' && secrets.KEY_PASSWORD || '' }}
+          IS_PRODUCTION: ${{ needs.generate-key.outputs.is_production }}
         run: |
-          if [ -n "$PROD_KEYSTORE" ] && [ -n "$PROD_KEYSTORE_PASSWORD" ] && [ -n "$PROD_KEY_ALIAS" ] && [ -n "$PROD_KEY_PASSWORD" ]; then
-            echo "$PROD_KEYSTORE" | base64 -d > sign-key.jks
-            echo "SIGN_KEY_ALIAS=$PROD_KEY_ALIAS" >> $GITHUB_ENV
-            echo "SIGN_KEYSTORE_PASSWORD=$PROD_KEYSTORE_PASSWORD" >> $GITHUB_ENV
-            echo "SIGN_KEY_PASSWORD=$PROD_KEY_PASSWORD" >> $GITHUB_ENV
-          else
-            echo "$PR_KEYSTORE" | base64 -d > sign-key.jks
-            echo "SIGN_KEY_ALIAS=$PR_KEY_ALIAS" >> $GITHUB_ENV
-            echo "SIGN_KEYSTORE_PASSWORD=$PR_KEYSTORE_PASSWORD" >> $GITHUB_ENV
-            echo "SIGN_KEY_PASSWORD=$PR_KEY_PASSWORD" >> $GITHUB_ENV
-          fi
-          echo "SIGN_KEYSTORE_FILE=sign-key.jks" >> $GITHUB_ENV
+          set -euo pipefail
+          SIGN_KEYSTORE_FILE=$(mktemp "$RUNNER_TEMP/sakisu-sign.XXXXXX.jks")
+          CERT_FILE=$(mktemp "$RUNNER_TEMP/sakisu-cert.XXXXXX.der")
+          cleanup_signing_inputs() {
+            rm -f "$SIGN_KEYSTORE_FILE" "$CERT_FILE"
+            unset SIGN_KEYSTORE_PASSWORD SIGN_KEY_PASSWORD SIGN_KEY_ALIAS
+          }
+          trap cleanup_signing_inputs EXIT
 
-      - name: Repack and resign
-        if: ${{ github.ref == 'refs/heads/main' || github.ref_type == 'tag' }}
-        run: |
+          if [ "$IS_PRODUCTION" = "true" ]; then
+            if [ -z "$PROD_KEYSTORE" ] || [ -z "$PROD_KEYSTORE_PASSWORD" ] || [ -z "$PROD_KEY_ALIAS" ] || [ -z "$PROD_KEY_PASSWORD" ]; then
+              echo "::error::Production signing inputs are incomplete. Configure KEYSTORE / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD in the protected production-signing Environment."
+              exit 1
+            fi
+            printf '%s' "$PROD_KEYSTORE" | base64 -d > "$SIGN_KEYSTORE_FILE"
+            keytool -exportcert \
+              -alias "$PROD_KEY_ALIAS" \
+              -keystore "$SIGN_KEYSTORE_FILE" \
+              -storepass "$PROD_KEYSTORE_PASSWORD" \
+              -file "$CERT_FILE"
+            CERT_SIZE=$(printf '0x%x' "$(stat -c%s "$CERT_FILE")")
+            CERT_HASH=$(sha256sum "$CERT_FILE" | awk '{print $1}')
+            OFFICIAL_SIZE=$(awk '/EXPECTED_SIZE_SAKISU/ {print $3; exit}' kernel/manager/manager_sign.h)
+            OFFICIAL_HASH=$(awk -F'"' '/EXPECTED_HASH_SAKISU/ {print $2; exit}' kernel/manager/manager_sign.h)
+            if [ "$CERT_SIZE" != "$OFFICIAL_SIZE" ] || [ "$CERT_HASH" != "$OFFICIAL_HASH" ]; then
+              echo "::error::production-signing certificate $CERT_SIZE/$CERT_HASH does not match manager_sign.h $OFFICIAL_SIZE/$OFFICIAL_HASH."
+              exit 1
+            fi
+            SIGN_KEY_ALIAS="$PROD_KEY_ALIAS"
+            SIGN_KEYSTORE_PASSWORD="$PROD_KEYSTORE_PASSWORD"
+            SIGN_KEY_PASSWORD="$PROD_KEY_PASSWORD"
+          else
+            if [ -z "$PR_KEYSTORE" ] || [ -z "$PR_KEYSTORE_PASSWORD" ] || [ -z "$PR_KEY_ALIAS" ] || [ -z "$PR_KEY_PASSWORD" ]; then
+              echo "::error::Ephemeral signing inputs are incomplete."
+              exit 1
+            fi
+            printf '%s' "$PR_KEYSTORE" | base64 -d > "$SIGN_KEYSTORE_FILE"
+            SIGN_KEY_ALIAS="$PR_KEY_ALIAS"
+            SIGN_KEYSTORE_PASSWORD="$PR_KEYSTORE_PASSWORD"
+            SIGN_KEY_PASSWORD="$PR_KEY_PASSWORD"
+          fi
           python3 repack_apk_multi.py repack \
             -b ${{ matrix.build_type }} \
             -t release \
@@ -387,13 +377,49 @@ jobs:
             -S "$SIGN_KEY_PASSWORD" \
             --strip
 
-      - name: Delete gradle build
-        uses: GeekyEggo/delete-artifact@v6
-        with:
-          name: ${{ steps.determine.outputs.title }}-gradle-${{ matrix.build_type }}
-        
+      - name: Verify final APK signing and output set
+        env:
+          IS_PRODUCTION: ${{ needs.generate-key.outputs.is_production }}
+          EPHEMERAL_HASH: ${{ needs.generate-key.outputs.expected_hash }}
+        run: |
+          set -euo pipefail
+          if [ "$IS_PRODUCTION" = "true" ]; then
+            EXPECTED_HASH=$(awk -F'"' '/EXPECTED_HASH_SAKISU/ {print $2; exit}' kernel/manager/manager_sign.h)
+          else
+            EXPECTED_HASH="$EPHEMERAL_HASH"
+          fi
+          test -n "$EXPECTED_HASH"
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          APKSIGNER=$(find "$SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          test -n "$APKSIGNER"
+          shopt -s nullglob
+          APKS=(dist/*.apk)
+          test "${#APKS[@]}" -eq 4
+          for ABI in universal arm64-v8a armeabi-v7a x86_64; do
+            MATCHES=(dist/*-"$ABI"-release.apk)
+            if [ "${#MATCHES[@]}" -ne 1 ]; then
+              echo "::error::Expected exactly one $ABI release APK, found ${#MATCHES[@]}."
+              exit 1
+            fi
+          done
+          for APK in "${APKS[@]}"; do
+            VERIFY_OUTPUT=$("$APKSIGNER" verify --verbose --print-certs --min-sdk-version 24 "$APK")
+            echo "$VERIFY_OUTPUT"
+            echo "$VERIFY_OUTPUT" | grep -q 'Verified using v1 scheme (JAR signing): false'
+            echo "$VERIFY_OUTPUT" | grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true'
+            echo "$VERIFY_OUTPUT" | grep -q 'Verified using v3 scheme (APK Signature Scheme v3): false'
+            echo "$VERIFY_OUTPUT" | grep -q 'Verified using v3.1 scheme (APK Signature Scheme v3.1): false'
+            echo "$VERIFY_OUTPUT" | grep -q 'Verified using v4 scheme (APK Signature Scheme v4): false'
+            SIGNER_COUNT=$(echo "$VERIFY_OUTPUT" | grep -c 'Signer #[0-9][0-9]* certificate SHA-256 digest:')
+            test "$SIGNER_COUNT" -eq 1
+            APK_HASH=$(echo "$VERIFY_OUTPUT" | awk -F': ' '/Signer #1 certificate SHA-256 digest:/ {print tolower($2); exit}')
+            if [ "$APK_HASH" != "$EXPECTED_HASH" ]; then
+              echo "::error::$APK was signed by $APK_HASH, expected $EXPECTED_HASH."
+              exit 1
+            fi
+          done
+
       - name: Upload build artifact
-        if: ${{ github.ref == 'refs/heads/main' || github.ref_type == 'tag' }}
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.determine.outputs.title }}-${{ matrix.build_type }}
@@ -401,7 +427,7 @@ jobs:
 
   upload-telegram:
     needs: repack-manager
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref_type == 'tag')
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -435,13 +461,6 @@ jobs:
             echo "topicid=${{ vars.MESSAGE_DEVELOPING_MANAGER_THREAD_ID }}" >> $GITHUB_OUTPUT
           fi
         
-      - name: Download Debug artifact
-        if: ${{ matrix.manager_type != 'spoofed' }}
-        uses: actions/download-artifact@v8
-        with:
-          name: ${{ steps.determine.outputs.title }}-debug
-          path: ./apk/debug
-
       - name: Download Release artifact
         uses: actions/download-artifact@v8
         with:
@@ -461,10 +480,6 @@ jobs:
         run: |
           pip3 install python-telegram-bot
           export VERSION=$(git rev-list --count HEAD)
-          if [ ! "${{ matrix.manager_type }}" == "spoofed" ]; then
-            APK_DEBUG=apk/debug/*.apk
-          else
-            APK_DEBUG=""
-          fi
+          APK_DEBUG=""
           APK_RELEASE=apk/release/*.apk
           python3 $GITHUB_WORKSPACE/scripts/ksubot.py $APK_DEBUG $APK_RELEASE

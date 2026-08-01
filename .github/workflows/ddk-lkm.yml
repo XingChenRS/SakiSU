@@ -1,4 +1,4 @@
-name: Build KernelSU Kernel Module
+name: Build SakiSU Kernel Module
 
 on:
   workflow_call:
@@ -37,61 +37,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Inject vivo vermagic
-      if: ${{ inputs.vivo }}
-      run: |
-        set -euo pipefail
-        KMI="${{ inputs.kmi }}"
-        ANDROID_VER=$(echo "$KMI" | cut -d- -f1 | sed 's/android//')
-        KERNEL_VER=$(echo "$KMI" | cut -d- -f2)
-
-        case "$KMI" in
-          android12-5.10|android13-5.10)
-            UTS_STRING="5.10.233-android12-9-g28b19682acbc-dirty"
-            PATCH_UTS="false"
-            ;;
-          android14-6.1)
-            UTS_STRING="6.1.145-android14-11-maybe-dirty"
-            PATCH_UTS="true"
-            ;;
-          *)
-            UTS_STRING="${KERNEL_VER}.0-android${ANDROID_VER}-0-maybe-dirty"
-            PATCH_UTS="true"
-            echo "WARNING: KMI=$KMI uses a generic vivo vermagic template."
-            echo "Capture the real vivo vermagic and add a case above if a device rejects this LKM."
-            ;;
-        esac
-
-        VMAGIC_STRING="${UTS_STRING} SMP preempt mod_unload modversions vivo aarch64"
-        VERMAGIC_FILE=$(find /opt/ddk -path "*/include/linux/vermagic.h" | head -n 1)
-        if [ -z "$VERMAGIC_FILE" ]; then
-          echo "ERROR: vermagic.h not found under /opt/ddk"
-          exit 1
-        fi
-
-        echo "Patching $VERMAGIC_FILE"
-        echo "VERMAGIC_STRING=$VMAGIC_STRING"
-        {
-          echo ""
-          echo "#undef VERMAGIC_STRING"
-          echo "#define VERMAGIC_STRING \"$VMAGIC_STRING\""
-        } >> "$VERMAGIC_FILE"
-
-        if [ "$PATCH_UTS" = "true" ]; then
-          UTS_FILE=$(find /opt/ddk -path "*/include/generated/utsrelease.h" | head -n 1)
-          if [ -n "$UTS_FILE" ]; then
-            echo "Patching $UTS_FILE"
-            echo "UTS_RELEASE=$UTS_STRING"
-            {
-              echo ""
-              echo "#undef UTS_RELEASE"
-              echo "#define UTS_RELEASE \"$UTS_STRING\""
-            } >> "$UTS_FILE"
-          else
-            echo "utsrelease.h not found; skipping UTS patch."
-          fi
-        fi
 
     - name: Build kernelsu.ko
       env:
