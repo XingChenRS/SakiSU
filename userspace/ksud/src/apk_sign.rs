@@ -92,7 +92,10 @@ pub fn get_apk_signature(apk: &str) -> Result<(u32, String)> {
 
     // CVE-2023-46139: Ensure exactly one v2 signature block
     if v2_block_count != 1 {
-        return Err(anyhow::anyhow!("Expected exactly 1 v2 signature block, found {}", v2_block_count));
+        return Err(anyhow::anyhow!(
+            "Expected exactly 1 v2 signature block, found {}",
+            v2_block_count
+        ));
     }
 
     // Validate v2 signature is present
@@ -100,16 +103,18 @@ pub fn get_apk_signature(apk: &str) -> Result<(u32, String)> {
 
     // If v3 or v3.1 present, they must also be valid (cross-verify)
     // This prevents attackers from using different certs in different schemes
-    if let Some(v3_sig) = v3_signing {
-        if v3_sig != v2_sig {
-            return Err(anyhow::anyhow!("v3 signature cert does not match v2 cert"));
-        }
+    if let Some(v3_sig) = v3_signing
+        && v3_sig != v2_sig
+    {
+        return Err(anyhow::anyhow!("v3 signature cert does not match v2 cert"));
     }
 
-    if let Some(v3_1_sig) = v3_1_signing {
-        if v3_1_sig != v2_sig {
-            return Err(anyhow::anyhow!("v3.1 signature cert does not match v2 cert"));
-        }
+    if let Some(v3_1_sig) = v3_1_signing
+        && v3_1_sig != v2_sig
+    {
+        return Err(anyhow::anyhow!(
+            "v3.1 signature cert does not match v2 cert"
+        ));
     }
 
     Ok(v2_sig)
